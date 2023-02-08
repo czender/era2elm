@@ -8,7 +8,7 @@
    tpd_out=0.125
    mm='02'
    yyyy='1979'
-   ncap2 -O -v --script="tpd_out=${tpd_out};mm=${mm};yyyy=${yyyy}" -S ${HOME}/add_era5_forcing_elm/era2elm.nco ~/nco/data/in.nc ~/foo.nc */ 
+   ncap2 -O -v --script="tpd_out=${tpd_out};mm=${mm};yyyy=${yyyy}" -S ${HOME}/era5/era2elm.nco ~/nco/data/in.nc ~/foo.nc */ 
 
 if(!exists(tpd_out)) tpd_out=24;
 if(!exists(mm)) mm=73;

@@ -22,20 +22,20 @@
 # Debug with 'bash -x era2elm --dbg=dbg_lvl' where 0 <= dbg_lvl <= 5
 
 # Insta-install:
-# scp ~/add_era5_forcing_elm/era2elm zender1@acme1.llnl.gov:bin
-# scp ~/add_era5_forcing_elm/era2elm andes.olcf.ornl.gov:bin_andes
-# scp ~/add_era5_forcing_elm/era2elm ac.zender@blues.lcrc.anl.gov:bin_blues
-# scp ~/add_era5_forcing_elm/era2elm cheyenne.ucar.edu:bin
-# scp ~/add_era5_forcing_elm/era2elm ac.zender@chrysalis.lcrc.anl.gov:bin_chrysalis
-# scp ~/add_era5_forcing_elm/era2elm compy.pnl.gov:bin
-# scp ~/add_era5_forcing_elm/era2elm cooley.alcf.anl.gov:bin
-# scp ~/add_era5_forcing_elm/era2elm cori.nersc.gov:bin_cori
-# scp ~/add_era5_forcing_elm/era2elm dust.ess.uci.edu:bin
-# scp ~/add_era5_forcing_elm/era2elm e3sm.ess.uci.edu:bin
-# scp ~/add_era5_forcing_elm/era2elm frazil.ess.uci.edu:bin
-# scp ~/add_era5_forcing_elm/era2elm perlmutter-p1.nersc.gov:bin_perlmutter
-# scp ~/add_era5_forcing_elm/era2elm skyglow.ess.uci.edu:bin
-# scp ~/add_era5_forcing_elm/era2elm theta.alcf.anl.gov:bin_theta
+# scp ~/era5/era2elm zender1@acme1.llnl.gov:bin
+# scp ~/era5/era2elm andes.olcf.ornl.gov:bin_andes
+# scp ~/era5/era2elm ac.zender@blues.lcrc.anl.gov:bin_blues
+# scp ~/era5/era2elm cheyenne.ucar.edu:bin
+# scp ~/era5/era2elm ac.zender@chrysalis.lcrc.anl.gov:bin_chrysalis
+# scp ~/era5/era2elm compy.pnl.gov:bin
+# scp ~/era5/era2elm cooley.alcf.anl.gov:bin
+# scp ~/era5/era2elm cori.nersc.gov:bin_cori
+# scp ~/era5/era2elm dust.ess.uci.edu:bin
+# scp ~/era5/era2elm e3sm.ess.uci.edu:bin
+# scp ~/era5/era2elm frazil.ess.uci.edu:bin
+# scp ~/era5/era2elm perlmutter-p1.nersc.gov:bin_perlmutter
+# scp ~/era5/era2elm skyglow.ess.uci.edu:bin
+# scp ~/era5/era2elm theta.alcf.anl.gov:bin_theta
 # scp dust.ess.uci.edu:bin/era2elm ~/bin
 # scp dust.ess.uci.edu:bin/era2elm ${MY_BIN_DIR}
 # scp zender@dust.ess.uci.edu:bin/era2elm ${MY_BIN_DIR}
@@ -59,16 +59,20 @@ drc_spt="$( cd -P "$( dirname "${spt_src}" )" && pwd )"
 spt_nm=$(basename ${spt_src}) # [sng] Script name (unlike $0, ${BASH_SOURCE[0]} works well with 'source <script>')
 spt_pid=$$ # [nbr] Script PID (process ID)
 
+# Setup:
+# git clone git@github.com:czender/era5 ~/era5
+# ln -s ~/era5/era2elm ~/bin/era2elm
+# ln -s ~/era5/era2elm ~/sh/era2elm
+
 # Debugging and Benchmarking:
 # /bin/ls ~/data/era5/data_raw/1979 | era2elm
 # /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=2
-# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --drc_out=${DATA}/era5/data_out
-# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 &
-# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --job_nbr=1 --drc_out=${DATA}/era5/data_out
-# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --job_nbr=1 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 &
+# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --drc_out=${DATA}/era5/data_out # tdew
+# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 5m27s
 
 # Production usage:
-# /bin/ls ~/data/era5/data_raw/1979 | era2elm
+# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 &
+# /bin/ls /global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_raw/1990/*.nc | era2elm --npo --dbg=1 --job_nbr=3 --drc_out=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_out > ~/era5.txt 2>&1 & # NERSC
 
 # 20221108: Passing environment variable NCO_PATH_OVERRIDE (NPO) to ncremap in batch queues fails on Cori
 # Approaches that fail include: 1. export NPO='Yes';ncremap ... 2. export NPO='Yes' ncremap ...
@@ -722,8 +726,8 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
     for mth in {01..12}; do
 	let clm_idx=${clm_idx}+1
 	mm=`printf "%02d" ${clm_idx}`
-	hyp_opt[${mth}]="-d time,${yyyy}-${mm}-01T00:00:00,${yyyy}-${mm}-${dpm_365[${mth}]}T23:59:59"
-	#echo "hyp_opt[${mth}] = ${hyp_opt[${mth}]}"
+	hyp_opt[${clm_idx}]="-d time,${yyyy}-${mm}-01T00:00:00,${yyyy}-${mm}-${dpm_365[${clm_idx}]}T23:59:59"
+	#echo "hyp_opt[${clm_idx}] = ${hyp_opt[${clm_idx}]}"
     done # !mth
     
     clm_idx=0
@@ -732,7 +736,7 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	mm=`printf "%02d" ${clm_idx}`
 	# Construct output file name with pattern: elmforc.ERA5.c2018.0.25d.w10.1989-12.nc
 	fl_var_mth[${clm_idx}]="${drc_out}/${drc_nm[${fl_idx}]}/${out_nm}.${var_nm[${fl_idx}]}.${yyyy}-${mm}.nc"
-	cmd_rdr[${clm_idx}]="ncpdq -O --no_tmp_fl --reorder=-latitude ${hyp_opt[${mth}]} ${fl_in[${fl_idx}]} ${fl_var_mth[${clm_idx}]}"
+	cmd_rdr[${clm_idx}]="ncpdq -O --no_tmp_fl --reorder=-latitude ${hyp_opt[${clm_idx}]} ${fl_in[${fl_idx}]} ${fl_var_mth[${clm_idx}]}"
 	#echo "cmd_rdr = ${cmd_rdr[${clm_idx}]}"
 	cmd_upk[${clm_idx}]="ncpdq -O --unpack ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]}"
 	#echo "cmd_upk = ${cmd_upk[${clm_idx}]}"
