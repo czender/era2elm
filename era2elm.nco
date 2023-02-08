@@ -1,0 +1,64 @@
+// $Header$ -*-C++-*-
+
+/* Usage: ncap2 -O -S era2elm.nco in.nc out.nc
+
+   Purpose: Annotate ERA5 files with data/metadata necessary for use as ELM forcing data
+
+   Usage:
+   tpd_out=0.125
+   mm='02'
+   yyyy='1979'
+   ncap2 -O -v --script="tpd_out=${tpd_out};mm=${mm};yyyy=${yyyy}" -S ${HOME}/add_era5_forcing_elm/era2elm.nco ~/nco/data/in.nc ~/foo.nc */ 
+
+if(!exists(tpd_out)) tpd_out=24;
+if(!exists(mm)) mm=73;
+if(!exists(yyyy)) yyyy=1979;
+
+// Replace Gregorian "gregorian" with 365-day "noleap" calendar
+// Modify time attributes _after_ overwriting input integer time with output double precision time from array()
+*tm_ncr=1.0/tpd_out;
+time=array(0.0,tm_ncr,$time);
+time@calendar="noleap";
+time@units=sprint(yyyy,"days since %04d");
+time@units=push(time@units,sprint(mm,"-%02d-01 00:00:00"));
+//print(tpd_out,"tpd_out = %d");
+//print(tm_ncr,"tm_ncr = %f");
+//print(mm,"mm = %02d");
+//print(yyyy,"yyyy = %d");
+
+// Add required boundary forcing dataset dimension and edge variables
+defdim("scalar",1);
+
+EDGES[$scalar]=-90.0f;
+EDGES@long_name="southern edge in atmospheric data";
+EDGES@units="degrees_north";
+EDGES@mode="time-invariant";
+
+EDGEN[$scalar]=90.0f;
+EDGEN@long_name="northern edge in atmospheric data";
+EDGEN@units="degrees_north";
+EDGEN@mode="time-invariant";
+
+EDGEW[$scalar]=0.0f;
+EDGEW@long_name="western edge in atmospheric data";
+EDGEW@units="degrees_east";
+EDGEW@mode="time-invariant";
+
+EDGEE[$scalar]=360.0f;
+EDGEE@long_name="eastern edge in atmospheric data";
+EDGEE@units="degrees_east";
+EDGEE@mode="time-invariant";
+
+// Add required boundary forcing 2D gridcell center variables (units, long_name attributes are inherited)
+LATIXY[$lat,$lon]=lat;
+LATIXY@mode="time-invariant";
+
+LONGXY[$lat,$lon]=lon;
+LONGXY@mode="time-invariant";
+
+// Add global metadata
+global@Conventions = "CF-1.8";
+global@description="Reformatted hourly data from Hersbach, H. et al. (2018), who provide the fifth generation European Centre for Medium-Range Weather Forecast (ECMWF) reanalysis for global climate and weather. Raw data were downloaded from the Copernicus Climate Change Service (C3S) Climate Data Store and were formatted to provide the atmospheric forcing for the Energy Exascale Earth System Model (E3SM) Land Model (ELM). The results contain modified Copernicus Climate Change Service information 2020. Neither the European Commission nor ECMWF is responsible for any use that may be made of the Copernicus information or data it contains.";
+global@citation="Hersbach, H., Bell, B., Berrisford, P., Biavati, G., Horányi, A., Muñoz Sabater, J., Nicolas, J., Peubey, C., Radu, R., Rozum, I., Schepers, D., Simmons, A., Soci, C., Dee, D., Thépaut, J-N. (2018): ERA5 hourly data on single levels from 1959 to present. Copernicus Climate Change Service (C3S) Climate Data Store (CDS). (Accessed on 14-Oct-2022), 10.24381/cds.adbb2d47";
+global@creators="Charlie Zender, Adam M. Schneider, and Chloe A. Whicker";
+global@contact="Charlie Zender <zender@uci.edu>";

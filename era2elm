@@ -1,0 +1,1042 @@
+#!/usr/bin/env bash
+
+# Purpose: Convert ERA5 data to offline forcing datasets for E3SM ELM
+
+# Copyright (C) 2023--present Charlie Zender
+
+# This program is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  
+# See the 3-Clause BSD License for more details.
+
+# The original author of this software, Charlie Zender, seeks to improve
+# it with your suggestions, contributions, bug-reports, and patches.
+# Please contact the NCO project at http://nco.sf.net or write to
+# Charlie Zender
+# Department of Earth System Science
+# University of California, Irvine
+# Irvine, CA 92697-3100
+
+# Prerequisites: Bash, NCO
+# Script could use other shells, e.g., dash (Debian default) after rewriting function definitions and loops
+# Debug with 'bash -x era2elm --dbg=dbg_lvl' where 0 <= dbg_lvl <= 5
+
+# Insta-install:
+# scp ~/add_era5_forcing_elm/era2elm zender1@acme1.llnl.gov:bin
+# scp ~/add_era5_forcing_elm/era2elm andes.olcf.ornl.gov:bin_andes
+# scp ~/add_era5_forcing_elm/era2elm ac.zender@blues.lcrc.anl.gov:bin_blues
+# scp ~/add_era5_forcing_elm/era2elm cheyenne.ucar.edu:bin
+# scp ~/add_era5_forcing_elm/era2elm ac.zender@chrysalis.lcrc.anl.gov:bin_chrysalis
+# scp ~/add_era5_forcing_elm/era2elm compy.pnl.gov:bin
+# scp ~/add_era5_forcing_elm/era2elm cooley.alcf.anl.gov:bin
+# scp ~/add_era5_forcing_elm/era2elm cori.nersc.gov:bin_cori
+# scp ~/add_era5_forcing_elm/era2elm dust.ess.uci.edu:bin
+# scp ~/add_era5_forcing_elm/era2elm e3sm.ess.uci.edu:bin
+# scp ~/add_era5_forcing_elm/era2elm frazil.ess.uci.edu:bin
+# scp ~/add_era5_forcing_elm/era2elm perlmutter-p1.nersc.gov:bin_perlmutter
+# scp ~/add_era5_forcing_elm/era2elm skyglow.ess.uci.edu:bin
+# scp ~/add_era5_forcing_elm/era2elm theta.alcf.anl.gov:bin_theta
+# scp dust.ess.uci.edu:bin/era2elm ~/bin
+# scp dust.ess.uci.edu:bin/era2elm ${MY_BIN_DIR}
+# scp zender@dust.ess.uci.edu:bin/era2elm ${MY_BIN_DIR}
+
+# Set script name, directory, PID, run directory
+drc_pwd=${PWD}
+# Security: Explicitly unset IFS before wordsplitting, so Bash uses default IFS=<space><tab><newline>
+unset IFS
+# Set these before 'module' command which can overwrite ${BASH_SOURCE[0]}
+# NB: dash supports $0 syntax, not ${BASH_SOURCE[0]} syntax
+# http://stackoverflow.com/questions/59895/can-a-bash-script-tell-what-directory-its-stored-in
+spt_src="${BASH_SOURCE[0]}"
+[[ -z "${spt_src}" ]] && spt_src="${0}" # Use ${0} when BASH_SOURCE is unavailable (e.g., dash)
+while [ -h "${spt_src}" ]; do # Recursively resolve ${spt_src} until file is no longer a symlink
+  drc_spt="$( cd -P "$( dirname "${spt_src}" )" && pwd )"
+  spt_src="$(readlink "${spt_src}")"
+  [[ ${spt_src} != /* ]] && spt_src="${drc_spt}/${spt_src}" # If ${spt_src} was relative symlink, resolve it relative to path where symlink file was located
+done
+cmd_ln="${spt_src} ${@}"
+drc_spt="$( cd -P "$( dirname "${spt_src}" )" && pwd )"
+spt_nm=$(basename ${spt_src}) # [sng] Script name (unlike $0, ${BASH_SOURCE[0]} works well with 'source <script>')
+spt_pid=$$ # [nbr] Script PID (process ID)
+
+# Debugging and Benchmarking:
+# /bin/ls ~/data/era5/data_raw/1979 | era2elm
+# /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=2
+# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --drc_out=${DATA}/era5/data_out
+# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 &
+# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --job_nbr=1 --drc_out=${DATA}/era5/data_out
+# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --job_nbr=1 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 &
+
+# Production usage:
+# /bin/ls ~/data/era5/data_raw/1979 | era2elm
+
+# 20221108: Passing environment variable NCO_PATH_OVERRIDE (NPO) to ncremap in batch queues fails on Cori
+# Approaches that fail include: 1. export NPO='Yes';ncremap ... 2. export NPO='Yes' ncremap ...
+# Direct approach that works is to pass NPO flag to ncremap via command-line switch
+# Require that path-override switch to be first command-line option (i.e., $1) found with shell syntax
+# ncremap/ncclimo implement NPO (though not getopt) logic prior to invoking NCO
+# This switch is a no-op in main getopt() block below (since it has already been parsed here)
+hrd_pth='No' # [sng] Hard-code machine-dependent paths/modules if HOSTNAME in database
+if [ -n "${1}" ]; then
+    if [ "${1}" = '--hrd_pth' ] || [ "${1}" = '--npo' ] || [ "${1}" = '--nco_path_override' ] || [ "${1}" = '--NCO_PATH_OVERRIDE' ]; then
+	hrd_pth='Yes'
+	NCO_PATH_OVERRIDE='Yes'
+    fi # !hrd_pth
+fi # !$1
+
+# Configure paths at High-Performance Computer Centers (HPCCs) based on ${HOSTNAME}
+if [ -z "${HOSTNAME}" ]; then
+    if [ -f /bin/hostname ] && [ -x /bin/hostname ]; then
+	export HOSTNAME=`/bin/hostname`
+    elif [ -f /usr/bin/hostname ] && [ -x /usr/bin/hostname ]; then
+	export HOSTNAME=`/usr/bin/hostname`
+    fi # !hostname
+fi # HOSTNAME
+
+# Ensure batch jobs access correct 'mpirun' (or, with SLURM, 'srun') command, netCDF library, and NCO executables and library
+# 20170914 Entire block is identical between ncclimo and ncremap---keep it that way!
+# 20190421 Change override default from opt-out to opt-in
+# 20221108 Implement hrd_pth in block above prior to getopt()
+# Leave NCO_PATH_OVERRIDE unset or set to 'No' to prevent NCO from executing next block that overrides PATH
+# Set NCO_PATH_OVERRIDE to 'Yes' in environment to cause NCO to execute next block and to override PATH:
+# export NCO_PATH_OVERRIDE='Yes'
+if [ "${hrd_pth}" = 'Yes' ] && [ "${NCO_PATH_OVERRIDE}" = 'Yes' ]; then
+    # If HOSTNAME is not in database, change hrd_pth_fnd to 'No' in case-statement default fall-through
+    hrd_pth_fnd='Yes' # [sng] Machine-dependent paths/modules for HOSTNAME found in database
+    case "${HOSTNAME}" in 
+	acme1* )
+	    export PATH='/home/zender1/bin:/p/user_pub/e3sm_unified/envs/base/envs/e3sm_unified_latest/bin'\:${PATH}
+            export LD_LIBRARY_PATH='/home/zender1/lib:/p/user_pub/e3sm_unified/envs/base/envs/e3sm_unified_latest/lib'\:${LD_LIBRARY_PATH} ; ;;
+	andes* )
+	    # 20190827: Must guarantee finding mpirun
+	    source ${MODULESHOME}/init/sh # 20150607: PMC Ensures find module commands will be found
+	    if [ ${spt_nm} = 'ncremap' ]; then
+		module load esmf
+	    fi # !ncremap
+            export PATH='/ccs/home/zender/bin_andes'\:${PATH}
+	    export LD_LIBRARY_PATH='/ccs/home/zender/lib_andes:/ccs/proj/cli900/sw/andes/e3sm-unified/base/envs/e3sm_unified_latest/lib'\:${LD_LIBRARY_PATH} ; ;;
+	blues* | blogin* | b[0123456789][0123456789][0123456789] )
+	    export PATH='/home/zender/bin_blues'\:${PATH}
+	    export LD_LIBRARY_PATH='/home/zender/lib_blues'\:${LD_LIBRARY_PATH} ; ;;
+	chrysalis* | chrlogin* | chr-[0123456789][0123456789][0123456789][0123456789] )
+	    # 20221006 Add build environment modules
+	    module load gcc/9.2.0-ugetvbp
+	    module load openmpi/4.0.4-hpcx-hghvhj5
+	    if [ ${spt_nm} = 'ncremap' ]; then
+		E3SMU_ROOT='/lcrc/soft/climate/e3sm-unified/base/envs/e3sm_unified_latest'
+	    fi # !ncremap
+	    export PATH='/home/ac.zender/bin_chrysalis:/home/ac.zender/anaconda/bin'\:${PATH}
+	    export LD_LIBRARY_PATH='/home/ac.zender/lib_chrysalis:/home/ac.zender/anaconda/lib'\:${LD_LIBRARY_PATH} ; ;;
+	*cheyenne* )
+	    # 20180112: Cheyenne support not yet tested in batch mode
+	    if [ ${spt_nm} = 'ncremap' ]; then
+		# On cheyenne, module load ncl installs ERWG in /glade/u/apps/ch/opt/ncl/6.4.0/intel/17.0.1/bin (i.e., ${NCARG_ROOT}/bin)
+		module load ncl
+	    fi # !ncremap
+	    if [ -n "${NCARG_ROOT}" ]; then
+		export PATH="${PATH}:/glade/u/apps/ch/opt/ncl/6.6.2/gnu/8.3.0/bin"
+	    fi # !NCARG_ROOT
+            export PATH='/glade/u/home/zender/bin'\:${PATH}
+            export LD_LIBRARY_PATH='/glade/u/apps/ch/opt/netcdf/4.6.3/gnu/9.1.0/lib:/glade/u/apps/ch/opt/udunits/2.2.26/gnu/9.1.0/lib:/glade/u/apps/ch/opt/gsl/2.4/gnu/6.3.0/lib:/glade/u/home/zender/lib'\:${LD_LIBRARY_PATH} ; ;;
+	compy* | n[0123456789][0123456789][0123456789][0123456789] )
+	    module purge
+	    module load gcc/10.2.0
+	    if [ ${spt_nm} = 'ncremap' ]; then
+		# 20210519: This script takes significant time (5-10 seconds) to load
+		source /compyfs/software/mbtempest.envs.sh
+		E3SMU_ROOT='/share/apps/E3SM/conda_envs/base/envs/e3sm_unified_latest'
+	    fi # !ncremap
+	    export PATH='/qfs/people/zender/bin:/qfs/people/zender/anaconda/bin'\:${PATH}
+	    export LD_LIBRARY_PATH='/qfs/people/zender/lib:/qfs/people/zender/anaconda/lib'\:${LD_LIBRARY_PATH} ; ;;
+	cooley* | cc[0123456789][0123456789][0123456789] )
+	    # 20160421: Split cooley from mira binary locations to allow for different system libraries
+	    # http://www.mcs.anl.gov/hs/software/systems/softenv/softenv-intro.html
+	    soft add +mvapich2 
+            export PBS_NUM_PPN=12 # Spoof PBS on Soft (which knows nothing about node capabilities)
+	    export PATH='/home/zender/bin_cooley'\:${PATH}
+	    export LD_LIBRARY_PATH='/home/zender/lib_cooley'\:${LD_LIBRARY_PATH} ; ;;
+	cori* | cmem* | nid[0123456789][0123456789][0123456789][0123456789][0123456789] )
+	    # 20220811 Add build environment modules
+	    module purge
+	    module load PrgEnv-intel
+	    module load cray-netcdf
+	    module load gsl/2.7
+	    module load antlr/2.7.7-intel
+	    module load udunits
+	    if [ ${spt_nm} = 'ncremap' ]; then
+		MOAB_ROOT=/project/projectdirs/e3sm/software/moab
+		TEMPESTREMAP_ROOT=/project/projectdirs/e3sm/software/tempestremap
+		E3SMU_ROOT='/global/common/software/e3sm/anaconda_envs/base/envs/e3sm_unified_latest'
+	    fi # !ncremap
+	    if [ -n "${NCARG_ROOT}" ]; then
+		export PATH="${PATH}:${NCARG_ROOT}/bin"
+	    fi # !NCARG_ROOT
+	    export PATH='/global/homes/z/zender/bin_cori'\:${PATH}
+            export LD_LIBRARY_PATH='/global/homes/z/zender/lib_cori'\:${LD_LIBRARY_PATH} ; ;;
+	mira* )
+	    export PATH='/home/zender/bin_mira'\:${PATH}
+	    export LD_LIBRARY_PATH='/soft/libraries/netcdf/current/library:/home/zender/lib_mira'\:${LD_LIBRARY_PATH} ; ;;
+	perlmutter* | login[0123456789][0123456789] | nid[0123456789][0123456789][0123456789][0123456789][0123456789][0123456789] )
+	    # 20221103 Add build environment modules
+	    module load PrgEnv-gnu
+	    module load gcc/11.2.0
+	    module load cray-hdf5/1.12.2.1
+	    module load cray-netcdf/4.9.0.1
+	    if [ ${spt_nm} = 'ncremap' ]; then
+		MOAB_ROOT=/project/projectdirs/e3sm/software/moab
+		TEMPESTREMAP_ROOT=/project/projectdirs/e3sm/software/tempestremap
+		E3SMU_ROOT='/global/common/software/e3sm/anaconda_envs/base/envs/e3sm_unified_latest'
+	    fi # !ncremap
+	    if [ -n "${NCARG_ROOT}" ]; then
+		export PATH="${PATH}:${NCARG_ROOT}/bin"
+		export LD_LIBRARY_PATH="${LD_LIBRARY_PATH}:${NCARG_ROOT}/lib"
+	    fi # !NCARG_ROOT
+	    export PATH='/global/homes/z/zender/bin_perlmutter'\:${PATH}
+            export LD_LIBRARY_PATH='/global/homes/z/zender/lib_perlmutter'\:${LD_LIBRARY_PATH} ; ;;
+	theta* )
+	    export PATH='/opt/cray/pe/netcdf/4.6.1.2/gnu/7.1/bin'\:${PATH}
+	    export LD_LIBRARY_PATH='/opt/cray/pe/netcdf/4.6.1.2/gnu/7.1/lib'\:${LD_LIBRARY_PATH} ; ;;
+	titan* )
+	    source ${MODULESHOME}/init/sh # 20150607: PMC Ensures find module commands will be found
+	    module load gcc
+	    if [ ${spt_nm} = 'ncremap' ]; then
+		# 20170831: Use module load ncl (6.3.0 lacks ERWG)
+		module load ncl # 20170916 OK
+	    fi # !ncremap
+	    if [ -n "${NCARG_ROOT}" ]; then
+		export PATH="${PATH}:${NCARG_ROOT}/bin"
+	    fi # !NCARG_ROOT
+            export PATH='/ccs/home/zender/bin_titan'\:${PATH}
+	    export LD_LIBRARY_PATH='/opt/cray/netcdf/4.4.1.1/GNU/49/lib:/sw/xk6/udunits/2.1.24/sl_gcc4.5.3/lib:/ccs/home/zender/lib_titan'\:${LD_LIBRARY_PATH} ; ;;
+	* ) # Default fall-through
+	    hrd_pth_fnd='No' ; ;;
+    esac # !HOSTNAME
+    # 20210519: E3SM-U supplies many uncommon executables, e.g., ESMF_RegridWeightGen
+    # Append E3SM-U to end of PATH so NCO binaries not redirected, e.g., from CSZ's development directory to E3SM-U
+    if [ -n "${E3SMU_ROOT}" ]; then
+	export PATH="${PATH}:${E3SMU_ROOT}/bin"
+    fi # !MOAB_ROOT
+fi # !hrd_pth && !NCO_PATH_OVERRIDE
+
+# 20220131 ncclimo/ncremap commands within scripts that open E3SMU environment
+# (e.g., zppy-generated scripts) must be told where to find NCO binaries.
+# Only necessary on login nodes since Spack handles this fine on compute nodes
+if [ "${E3SMU_MPI}" = 'NOMPI' ] && [ -n "${E3SMU_SCRIPT}" ] && [ -n "${CONDA_PREFIX}" ]; then
+   export PATH="${CONDA_PREFIX}/bin"\:${PATH}
+fi # !E3SMU_MPI
+# Set NCO version and directory
+nco_exe=`which ncks`
+if [ -z "${nco_exe}" ]; then
+    echo "${spt_nm}: ERROR Unable to find NCO, \${nco_exe} = ${nco_exe}"
+    echo "${spt_nm}: HINT Carefully examine your environment setup (e.g., .bashrc) to avoid inadvertently overriding (with, e.g., conda-initialization) paths intended to be provided by an analysis-package environment (e.g., E3SM-Unified)"
+    exit 1
+fi # !nco_exe
+# StackOverflow method finds NCO directory
+while [ -h "${nco_exe}" ]; do
+  drc_nco="$( cd -P "$( dirname "${nco_exe}" )" && pwd )"
+  nco_exe="$(readlink "${nco_exe}")"
+  [[ ${nco_exe} != /* ]] && nco_exe="${drc_nco}/${nco_exe}"
+done
+drc_nco="$( cd -P "$( dirname "${nco_exe}" )" && pwd )"
+nco_vrs=$(ncks --version 2>&1 > /dev/null | grep NCO | awk '{print $5}')
+nco_sng=$(ncks --version 2>&1 > /dev/null | grep NCO | awk -F '"' '{print $2}')
+
+# 20190218: Die quickly when NCO is found yet cannot run, e.g., due to linker errors
+if [ -z "${nco_vrs}" ]; then
+    echo "${spt_nm}: ERROR ${nco_exe} dies with error message on next line:"
+    $(ncks --version)
+    exit 1
+fi # !nco_vrs
+lbr_vrs=$(ncks --library 2>&1 > /dev/null | awk '{print $6}')
+
+# When running in a terminal window (not in an non-interactive batch queue)...
+if [ -n "${TERM}" ]; then
+    # Set fonts for legibility
+    if [ -x /usr/bin/tput ] && tput setaf 1 &> /dev/null; then
+	fnt_bld=`tput bold` # Bold
+	fnt_nrm=`tput sgr0` # Normal
+	fnt_rvr=`tput smso` # Reverse
+	fnt_tlc=`tput sitm` # Italic
+    else
+	fnt_bld="\e[1m" # Bold
+	fnt_nrm="\e[0m" # Normal
+	fnt_rvr="\e[07m" # Reverse
+	fnt_tlc="\e[3m" # Italic
+    fi # !tput
+fi # !TERM
+    
+# Pre-define enumerated types used in defaults
+fl_nbr=0 # [nbr] Number of input filenames
+par_bck='background' # [sng] Parallelism: background
+par_mpi='mpi' # [sng] Parallelism: MPI
+par_srl='serial' # [sng] Parallelism: serial
+
+# Defaults for command-line options and some derived variables
+# Modify these defaults to save typing later
+bch_pbs='No' # [sng] PBS batch (non-interactive) job
+bch_slr='No' # [sng] SLURM batch (non-interactive) job
+caseid='elmforc.ERA5.c2018.0.25d' # [sng] Case ID
+dbg_lvl=0 # [nbr] Debugging level
+drc_in='' # [sng] Input file directory
+drc_in_xmp="${DATA}/era5/data_raw/1979" # [sng] Input file directory for examples
+drc_out='' # [sng] Output file directory
+drc_out_xmp="${DATA}/era5/data_out" # [sng] Output file directory for examples
+fl_fmt='' # [enm] Output file format
+fml_nm='' # [sng] Family name (i.e., nickname, e.g., 'amip', 'control', 'experiment')
+inp_aut='No' # [sng] Input file list automatically generated
+inp_glb='No' # [sng] Input file list from globbing directory 
+inp_psn='No' # [sng] Input file list from positional arguments
+inp_std='No' # [sng] Input file list from stdin
+job_nbr=3 # [nbr] Job simultaneity for parallelism (NB: testing reveals 3 is faster than 12)
+job_nbr_wrn=150 # [nbr] Maximum number of simultaneous jobs before WARNING is printed
+par_opt='' # [sng] Parallel options to shell
+par_typ="${par_bck}" # [sng] Parallelism type
+std_chk='Yes' # [sng] Check stdin for input file list
+tpd_out=24 # [nbr] Timesteps-per-day in output
+vrs_prn='No' # [sng] Print version information
+
+function fnc_usg_prn { # NB: dash supports fnc_nm (){} syntax, not function fnc_nm{} syntax
+    # Print usage
+    printf "${fnt_rvr}Basic usage:\n${fnt_nrm}${fnt_bld}ls *.nc | ${spt_nm}${fnt_nrm} # Default settings\n"
+    printf "${fnt_bld}ls *.nc | ${spt_nm} -o drc_out${fnt_nrm} # Short options with pre-defined types\n"
+    printf "${fnt_bld}ls *.nc | ${spt_nm} --drc_out=drc_out${fnt_nrm} # Long options with pre-defined types\n"
+    printf "${fnt_bld}ls *.nc | ${spt_nm} --drc_out=drc_out${fnt_nrm} # User-defined scheme and fragment strings\n\n"
+    echo "Command-line options [long-option synonyms in ${fnt_tlc}italics${fnt_nrm}]:"
+    echo "${fnt_rvr}-3${fnt_nrm}          Output file format CLASSIC (netCDF3 classic CDF1) [${fnt_tlc}fl_fmt, file_format=classic${fnt_nrm}]"
+    echo "${fnt_rvr}-4${fnt_nrm}          Output file format NETCDF4 (netCDF4 extended HDF5) [${fnt_tlc}fl_fmt, file_format=netcdf4${fnt_nrm}]"
+    echo "${fnt_rvr}-5${fnt_nrm}          Output file format 64BIT_DATA (netCDF3/PnetCDF CDF5) [${fnt_tlc}fl_fmt, file_format=64bit_data${fnt_nrm}]"
+    echo "${fnt_rvr}-6${fnt_nrm}          Output file format 64BIT_OFFSET (netCDF3 64bit CDF2) [${fnt_tlc}fl_fmt, file_format=64bit_offset${fnt_nrm}]"
+    echo "${fnt_rvr}-7${fnt_nrm}          Output file format NETCDF4_CLASSIC (netCDF4 classic HDF5) [${fnt_tlc}fl_fmt, file_format=netcdf4_classic${fnt_nrm}]"
+    echo "${fnt_rvr}-c${fnt_nrm} ${fnt_bld}caseid${fnt_nrm}   Case ID string to generate output filenames (default ${fnt_bld}${caseid}${fnt_nrm}) [${fnt_tlc}caseid, case_id, case${fnt_nrm}]"
+    echo "${fnt_rvr}-d${fnt_nrm} ${fnt_bld}dbg_lvl${fnt_nrm}  Debug level (default ${fnt_bld}${dbg_lvl}${fnt_nrm}) [${fnt_tlc}dbg_lvl, dbg, debug, debug_level${fnt_nrm}]"
+    echo "${fnt_rvr}-f${fnt_nrm} ${fnt_bld}fml_nm${fnt_nrm}   Family name (nickname) (empty means none) (default ${fnt_bld}${fml_nm}${fnt_nrm}) [${fnt_tlc}fml_nm, fml, family_name${fnt_nrm}]"
+#    echo " ${fnt_bld}--hrd_pth${fnt_nrm}  Use hard-coded paths on known machines (e.g., chrysalis, compy, cori) NB: Must be first option! [${fnt_tlc}hrd_pth, hard_path, npo, nco_path_override${fnt_nrm}]"
+    echo "${fnt_rvr}-i${fnt_nrm} ${fnt_bld}drc_in${fnt_nrm}   Input directory (default ${fnt_bld}${drc_in}${fnt_nrm}) [${fnt_tlc}drc_in, in_drc, dir_in, in_dir, input${fnt_nrm}]"
+    echo "${fnt_rvr}-j${fnt_nrm} ${fnt_bld}job_nbr${fnt_nrm}  Job simultaneity for parallelism (default ${fnt_bld}${job_nbr}${fnt_nrm}) [${fnt_tlc}job_nbr, job_number, jobs${fnt_nrm}]"
+    echo "${fnt_rvr}-o${fnt_nrm} ${fnt_bld}drc_out${fnt_nrm}  Output directory (default ${fnt_bld}${drc_out}${fnt_nrm}) [${fnt_tlc}drc_out, out_drc, dir_out, out_dir, output${fnt_nrm}]"
+    echo "${fnt_rvr}-p${fnt_nrm} ${fnt_bld}par_typ${fnt_nrm}  Parallelism type (default ${fnt_bld}${par_typ}${fnt_nrm}) [${fnt_tlc}par_typ, par_md, parallel_type, parallel_mode, parallel${fnt_nrm}] [${fnt_tlc}serial | background | mpi${fnt_nrm}]"
+    echo " ${fnt_bld}--tpd_out${fnt_nrm}  Timesteps-per-day in output (default ${fnt_bld}${tpd_out}${fnt_nrm}) [${fnt_tlc}tpd_out, tpd, timesteps_per_day${fnt_nrm}]"
+    echo " ${fnt_bld}--version${fnt_nrm}  Version and configuration information [${fnt_tlc}version, vrs, config, configuration, cnf${fnt_nrm}]"
+    printf "\n"
+    printf "${fnt_rvr}Examples:${fnt_nrm}\n"
+    printf "${fnt_bld}ls *.nc | ${spt_nm}${fnt_nrm} # Default settings\n"
+    printf "${fnt_bld}ls *.nc | ${spt_nm} -o ${drc_out_xmp}${fnt_nrm} # Explicit output directory\n"
+    printf "${fnt_bld}/bin/ls ${drc_in_xmp}/*.nc | ${spt_nm} --dbg=2${fnt_nrm} # Debug ${spt_nm}\n"
+    printf "${fnt_bld}/bin/ls ${drc_in_xmp}/*.nc | ${spt_nm}${fnt_nrm} # Default parallelism\n"
+    printf "${fnt_bld}/bin/ls ${drc_in_xmp}/*.nc | ${spt_nm} --par=serial${fnt_nrm} # Serial parallelism\n"
+    printf "\nComplete documentation at http://nco.sf.net/nco.html#${spt_nm}\n\n"
+    exit 1
+} # !fnc_usg_prn()
+
+function ncvarlst { ncks --trd -m ${1} | grep -E ': type' | cut -f 1 -d ' ' | sed 's/://' | sort ; }
+
+function var2drc {
+    local drc_nm_crr
+    if [ ${1} = 'mcpr' ] || [ ${1} = 'mlspr' ]; then
+        drc_nm_crr='prec'
+    elif [ ${1} = 't2m' ]; then
+        drc_nm_crr='tbot'
+    elif [ ${1} = 'd2m' ]; then
+        drc_nm_crr='tdew'
+    elif [ ${1} = 'sp' ]; then
+        drc_nm_crr='pbot'
+    elif [ ${1} = 'msdwlwrf' ]; then
+        drc_nm_crr='lwdn'
+    elif [ ${1} = 'msdwswrf' ] || [ ${1} = 'msdrswrf' ]; then
+        drc_nm_crr='swdn'
+    elif [ ${1} = 'u10' ] || [ ${1} = 'v10' ]; then
+        drc_nm_crr='wind'
+    else
+	echo "${spt_nm}: ERROR Unable to convert ERA5 variable name = \"${1}\" to directory name"
+	exit 1
+    fi # !1
+    echo ${drc_nm_crr}
+} # !var2drc
+
+function trim_leading_zeros {
+    # Purpose: Trim leading zeros from string representing an integer
+    # Why, you ask? Because Bash treats zero-padded integers as octal!
+    # This is surprisingly hard to workaround
+    # My workaround is to remove leading zeros prior to arithmetic
+    # Usage: trim_leading zeros ${sng}
+    sng_trm=${1} # [sng] Trimmed string
+    # Use Bash 2.X pattern matching to remove up to three leading zeros, one at a time
+    sng_trm=${sng_trm##0} # NeR98 p. 99
+    sng_trm=${sng_trm##0}
+    sng_trm=${sng_trm##0}
+    # If all zeros removed, replace with single zero
+    if [ ${sng_trm} = '' ]; then 
+	sng_trm='0'
+    fi # !sng_trm
+} # !trim_leading_zeros()
+
+# Check argument number and complain accordingly
+arg_nbr=$#
+#printf "\ndbg: Number of arguments: ${arg_nbr}"
+if [ ${arg_nbr} -eq 0 ]; then
+  fnc_usg_prn
+fi # !arg_nbr
+
+# Parse command-line options:
+# http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options (see method by Adam Katz)
+# http://tuxtweaks.com/2014/05/bash-getopts
+while getopts :34567c:d:f:i:o:p:s:-: OPT; do
+    case ${OPT} in
+	3) fl_fmt='3' ;; # File format
+	4) fl_fmt='4' ;; # File format
+	5) fl_fmt='5' ;; # File format
+	6) fl_fmt='6' ;; # File format
+	7) fl_fmt='7' ;; # File format
+	c) caseid="${OPTARG}" ;; # CASEID
+	d) dbg_lvl="${OPTARG}" ;; # Debugging level
+	f) fml_nm_usr="${OPTARG}" ;; # Family name
+	i) drc_in="${OPTARG}" ;; # Input directory
+	o) drc_out_usr="${OPTARG}" ;; # Output directory
+	p) par_typ="${OPTARG}" ;; # Parallelism type
+	-) LONG_OPTARG="${OPTARG#*=}"
+	   case ${OPTARG} in
+	       # Hereafter ${OPTARG} is long argument key, and ${LONG_OPTARG}, if any, is long argument value
+	       # Long options with no argument, no short option counterpart
+	       # Long options with argument, no short option counterpart
+	       # Long options with short counterparts, ordered by short option key
+	       caseid=?* | case_id=?* | case=?* ) caseid="${LONG_OPTARG}" ;; # -c # CASEID
+	       dbg_lvl=?* | dbg=?* | debug=?* | debug_level=?* ) dbg_lvl="${LONG_OPTARG}" ;; # -d # Debugging level
+	       drc_in=?* | in_drc=?* | dir_in=?* | in_dir=?* | input=?* ) drc_in="${LONG_OPTARG}" ;; # -i # Input directory
+	       drc_out=?* | out_drc=?* | dir_out=?* | out_dir=?* | output=?* ) drc_out_usr="${LONG_OPTARG}" ;; # -o # Output directory
+	       fl_fmt=?* | fmt_out=?* | file_format=?* | format_out=?* ) fl_fmt="${LONG_OPTARG}" ;; # # Output file format
+	       fml_nm=?* | fml=?* | family_name=?* | family=?* ) fml_nm_usr="${LONG_OPTARG}" ;; # -f # Family name
+	       hrd_pth | hard_path | npo | nco_path_override ) hrd_pth='Yes' ;; # # Use hard-coded paths on known machines (intentional no-op because already handled prior to getopt())
+	       hrd_pth=?* | hard_path=?* | npo=?* | nco_path_override=?* ) echo "No argument allowed for --${OPTARG switch}" >&2; exit 1 ;; # # Use hard-coded paths on known machines
+	       job_nbr=?* | job_number=?* | jobs=?* ) job_usr="${LONG_OPTARG}" ;; # -j # Job simultaneity
+	       par_typ=?* | par_md=?* | parallel_type=?* | parallel_mode=?* | parallel=?* ) par_typ="${LONG_OPTARG}" ;; # -p # Parallelism type
+	       tpd_out=?* | tpd=?* | timesteps_per_day=?* ) tpd_usr="${LONG_OPTARG}" ;; # # Timesteps-per-day in output
+	       version | vrs | config | configuration | cnf ) vrs_prn='Yes' ;; # # Print version information
+	       version=?* | vrs=?* | config=?* | configuration=?* | cnf=?* ) echo "No argument allowed for --${OPTARG switch}" >&2; exit 1 ;; # # Print version information
+               '' ) break ;; # "--" terminates argument processing
+               * ) printf "\nERROR: Unrecognized option ${fnt_bld}--${OPTARG}${fnt_nrm}\n" >&2; fnc_usg_prn ;;
+	   esac ;; # !OPTARG
+	\?) # Unrecognized option
+	    printf "\nERROR: Option ${fnt_bld}-${OPTARG}${fnt_nrm} not recognized\n" >&2
+	    fnc_usg_prn ;;
+    esac # !OPT
+done # !getopts
+shift $((OPTIND-1)) # Advance one argument
+psn_nbr=$#
+if [ ${psn_nbr} -ge 1 ]; then
+    inp_psn='Yes'
+    # 20200430 Input files on command-line mean we need not check standard-input
+    std_chk='No'
+fi # !psn_nbr
+
+if [ ${vrs_prn} = 'Yes' ]; then
+    printf "${spt_nm}, converts ERA5 raw data to E3SM ELM-compatible offline forcing datasets, version ${nco_vrs} \"${nco_sng}\"\n"
+    printf "Author 2023--present: Charlie Zender\n"
+    printf "Config: ${spt_nm} script located in directory ${drc_spt}\n"
+    printf "Config: NCO binaries located in directory ${drc_nco}, linked to netCDF library version ${lbr_vrs}\n"
+    if [ "${hrd_pth_fnd}" = 'Yes' ]; then
+	printf "Config: Employ NCO machine-dependent hardcoded paths/modules for ${HOSTNAME}. (If desired, turn-off NCO hardcoded paths with \"export NCO_PATH_OVERRIDE=No\").\n"
+    else
+	printf "Config: No hardcoded machine-dependent path/module overrides. (If desired, turn-on NCO hardcoded paths at supported national labs with \"export NCO_PATH_OVERRIDE=Yes\").\n"
+    fi # !hrd_pth_fnd
+    exit 0
+fi # !vrs_prn
+
+# Detect input on pipe to stdin:
+# http://stackoverflow.com/questions/2456750/detect-presence-of-stdin-contents-in-shell-script
+# http://unix.stackexchange.com/questions/33049/check-if-pipe-is-empty-and-run-a-command-on-the-data-if-it-isnt
+# 20170119 "if [ ! -t 0 ]" tests whether unit 0 (stdin) is connected to terminal, not whether pipe has data
+# Non-interactive batch mode (e.g., qsub, sbatch) disconnects stdin from terminal and triggers false-positives with ! -t 0
+# 20170123 "if [ -p foo ]" tests whether foo exists and is a pipe or named pipe
+# Non-interactive batch mode (i.e., sbatch) behaves as desired for -p /dev/stdin on SLURM
+# Non-interactive batch mode (e.g., qsub) always returns true for -p /dev/stdin on PBS, leads to FALSE POSITIVES!
+# This is because PBS uses stdin to set the job name
+# Hence -p /dev/stdin test works everywhere tested except PBS non-interactive batch environment
+# Check stdin if user has not explicitly disallowed it with --no_stdin
+if [ "${std_chk}" = 'Yes' ]; then
+    if [ -n "${PBS_ENVIRONMENT}" ]; then
+	if [ "${PBS_ENVIRONMENT}" = 'PBS_BATCH' ]; then
+	    # PBS batch detection suggested by OLCF ticket CCS #338970 on 20170127
+	    bch_pbs='Yes'
+	fi # !PBS_ENVIRONMENT
+    fi # !PBS
+    if [ -n "${SLURM_JOBID}" ] && [ -z "${SLURM_PTY_PORT}" ]; then
+	# SLURM batch detection suggested by NERSC ticket INC0096873 on 20170127
+	bch_slr='Yes'
+    fi # !SLURM
+    if [ ${bch_pbs} = 'Yes' ] || [ ${bch_slr} = 'Yes' ]; then
+	# Batch environment
+	if [ ${bch_pbs} = 'Yes' ]; then
+	    if [ ! -p /dev/stdin ]; then
+		# PBS batch jobs cause -p to return true except for stdin redirection 
+		# When -p returns true we do not know whether stdin pipe contains any input
+		# User must explicitly indicate use of stdin pipes with --stdin option
+		# Redirection in PBS batch jobs unambiguously causes -p to return false
+		inp_std='Yes'
+	    fi # !stdin
+	fi # !bch_slr
+	if [ ${bch_slr} = 'Yes' ]; then
+	    if [ -p /dev/stdin ]; then
+		# SLURM batch jobs cause -p to return true for stdin pipes
+		# When -p returns false we do not know whether output was redirectd
+		# User must explicitly indicate use of redirection with --stdin option
+		# Stdin pipes in SLURM batch jobs unambiguously cause -p to return true
+		inp_std='Yes'
+	    fi # !stdin
+	fi # !bch_slr
+    else # !bch
+	# Interactive environment
+	if [ -p /dev/stdin ] || [ ! -t 0 ]; then
+	    # Interactive environments unambiguously cause -p to return true for stdin pipes
+	    # Interactive environments unambiguously cause -t 0 to return false for stdin redirection
+	    inp_std='Yes'
+	fi # !stdin
+    fi # !bch
+    if [ ${inp_std} = 'Yes' ] && [ ${inp_psn} = 'Yes' ]; then
+	echo "${spt_nm}: ERROR expecting input from both stdin and positional command-line arguments"
+	exit 1
+    fi # !inp_std
+fi # !std_chk
+
+# Determine mode first (this helps determine other defaults)
+if [ -z "${drc_in}" ]; then
+    drc_in="${drc_pwd}"
+else # !drc_in
+    if [ ! -d "${drc_in}" ]; then
+	echo "${spt_nm}: ERROR specified input directory \"${drc_in}\" does not exist"
+	exit 1
+    fi # !drc_in
+    drc_in_usr='Yes'
+fi # !drc_in
+
+# Read files from stdin pipe, positional arguments, or directory glob
+#printf "dbg: inp_aut  = ${inp_aut}\n"
+#printf "dbg: inp_glb  = ${inp_glb}\n"
+#printf "dbg: inp_psn  = ${inp_psn}\n"
+#printf "dbg: inp_std  = ${inp_std}\n"
+
+# Derived variables
+if [ -n "${drc_out_usr}" ]; then
+    # Fancy %/ syntax removes trailing slash (e.g., from $TMPDIR)
+    drc_out="${drc_out_usr%/}"
+fi # !drc_out_usr
+
+# Doubly-derived variables
+
+# Create output directory
+if [ -n "${drc_out}" ] && [ ! -d "${drc_out}" ]; then 
+    cmd_mkd="mkdir -p ${drc_out}"
+    eval ${cmd_mkd}
+    if [ "$?" -ne 0 ]; then
+	printf "${spt_nm}: ERROR Failed to create output directory. Debug this:\n${cmd_mkd}\n"
+	printf "${spt_nm}: HINT Creating a directory requires proper write permissions\n"
+	exit 1
+    fi # !err
+fi # !drc_out
+
+# Define calendar
+
+# Define actions based on standard options
+if [ -n "${caseid}" ]; then
+    out_nm=${caseid}
+fi # !caseid
+if [ -n "${fml_nm_usr}" ]; then 
+    fml_nm="${fml_nm_usr}"
+    out_nm="${fml_nm}"
+fi # !fml_nm
+if [ -n "${job_usr}" ]; then 
+    job_nbr="${job_usr}"
+fi # !job_usr
+if [ -n "${fl_fmt}" ]; then
+    if [ "${fl_fmt}" = '3' ] || [ "${fl_fmt}" = 'classic' ] || [ "${fl_fmt}" = 'netcdf3' ]; then
+	nco_fl_fmt='--fl_fmt=classic'
+    elif [ "${fl_fmt}" = '4' ] || [ "${fl_fmt}" = 'netcdf4' ] || [ "${fl_fmt}" = 'hdf5' ]; then
+	nco_fl_fmt='--fl_fmt=netcdf4'
+    elif [ "${fl_fmt}" = '5' ] || [ "${fl_fmt}" = '64bit_data' ] || [ "${fl_fmt}" = 'cdf5' ]; then
+	nco_fl_fmt='--fl_fmt=64bit_data'
+    elif [ "${fl_fmt}" = '6' ] || [ "${fl_fmt}" = '64bit_offset' ] || [ "${fl_fmt}" = '64' ]; then
+	nco_fl_fmt='--fl_fmt=64bit_offset'
+    elif [ "${fl_fmt}" = '7' ] || [ "${fl_fmt}" = 'netcdf4_classic' ]; then
+	nco_fl_fmt='--fl_fmt=netcdf4_classic'
+    else
+	echo "${spt_nm}: ERROR User-supplied file-format specifier fl_fmt='${fl_fmt}' is invalid"
+	echo "${spt_nm}: HINT Valid format-specifiers include '3', '4', '5', '6', and '7'"
+	exit 1
+    fi # !fl_fmt
+    nco_opt="${nco_fl_fmt} ${nco_opt}"
+fi # !fl_fmt
+if [ "${par_typ}" = ${par_bck} ] || [[ "${par_typ}" =~ [bB]ck ]] || [[ "${par_typ}" =~ [bB]ackground ]]; then 
+    par_typ=${par_bck}
+    par_opt=' &'
+elif [ "${par_typ}" = ${par_mpi} ] || [[ "${par_typ}" =~ (mpi|MPI) ]]; then 
+    par_typ=${par_mpi}
+    par_opt=' &'
+    mpi_flg='Yes'
+elif [ "${par_typ}" = ${par_srl} ] || [ "${par_typ}" = 'srl' ] || [[ "${par_typ}" =~ [sS]erial ]] || [[ "${par_typ}" =~ [nN]il ]] || [[ "${par_typ}" =~ [nN]one ]]; then 
+    par_typ=${par_srl}
+else 
+    echo "ERROR: Invalid -p par_typ option = ${par_typ}"
+    echo "HINT: Valid par_typ arguments include '${par_bck}' (or 'bck'), '${par_mpi}' (or 'MPI'), and '${par_srl}' (or 'srl' or 'nil' or 'none'). For background parallelism, select '${par_bck}' which causes ${spt_nm} to spawn parallel processes as background tasks on a single node. For MPI parallelism, select '${par_mpi}' which causes ${spt_nm} to spawn parallel processes on across available cluster nodes. For no parallelism (aka serial mode), select '${par_srl}', which causes ${spt_nm} to spawn all processes serially on a single compute node."
+    exit 1
+fi # !par_typ
+if [ -n "${tpd_usr}" ]; then 
+    tpd_out="${tpd_usr}"
+fi # !tpd_usr
+
+if [ ${inp_glb} = 'Yes' ]; then 
+    for fl in "${drc_in}"/*.nc "${drc_in}"/*.nc3 "${drc_in}"/*.nc4 "${drc_in}"/*.nc5 "${drc_in}"/*.nc6 "${drc_in}"/*.nc7 "${drc_in}"/*.cdf "${drc_in}"/*.hdf "${drc_in}"/*.he5 "${drc_in}"/*.h5 ; do
+	if [ -f "${fl}" ]; then
+	    fl_in[${fl_nbr}]=${fl}
+	    let fl_nbr=${fl_nbr}+1
+	fi # !file
+    done
+fi # !inp_glb
+if [ ${inp_psn} = 'Yes' ]; then
+    # Read any positional arguments
+    for ((psn_idx=1;psn_idx<=psn_nbr;psn_idx++)); do
+	fl_in[(${psn_idx}-1)]=${!psn_idx}
+	fl_nbr=${psn_nbr}
+    done # !psn_idx
+fi # !inp_psn
+if [ ${inp_std} = 'Yes' ]; then
+    # Input awaits on unit 0, i.e., on stdin
+    while read -r line; do # NeR05 p. 179
+	fl_in[${fl_nbr}]=${line}
+	let fl_nbr=${fl_nbr}+1
+    done < /dev/stdin
+fi # !inp_std
+
+# Prepend drc_in to fl_in in MFOs (ncea, ncecat, ncra, ncrcat)
+ppn_opt="-p ${drc_in}"
+# 20220111 If input files include absolute path, then use fl_in as-is later on
+# 20220130 fl_in is defined here only for inp_[std,cmd,glb], do not test iff inp_aut
+if [ "${fl_in[0]}" ] && [ "$(basename ${fl_in[0]})" != "${fl_in[0]}" ]; then
+    ppn_opt=''
+fi # !basename
+
+# If user does not explicitly set job number then base it on parallelism type
+if [ -z "${job_usr}" ]; then 
+    if [ "${par_typ}" = ${par_bck} ]; then 
+	# Background mode will run one batch with all twelve months
+	job_nbr=12
+    elif [ "${par_typ}" = ${par_mpi} ]; then 
+	# MPI mode is conservative and will only use one job-per-node unless told otherwise
+	job_nbr=${nd_nbr}
+    elif [ "${par_typ}" = 'nil' ] || [ -z "${par_typ}" ]; then 
+	# Serial mode equates to job_nbr=1, full serial
+	job_nbr=1
+    fi # !job_usr
+fi # !job_usr
+
+# Print initial state
+if [ ${dbg_lvl} -ge 2 ]; then
+    printf "dbg: dbg_lvl = ${dbg_lvl}\n"
+    printf "dbg: drc_in  = ${drc_in}\n"
+    printf "dbg: drc_out = ${drc_out}\n"
+    printf "dbg: hrd_pth = ${hrd_pth}\n"
+    printf "dbg: inp_aut = ${inp_aut}\n"
+    printf "dbg: inp_glb = ${inp_glb}\n"
+    printf "dbg: inp_psn = ${inp_psn}\n"
+    printf "dbg: inp_std = ${inp_std}\n"
+    printf "dbg: job_nbr = ${job_nbr}\n"
+    printf "dbg: par_typ = ${par_typ}\n"
+    printf "dbg: ppn_opt = ${ppn_opt}\n"
+fi # !dbg
+if [ ${dbg_lvl} -ge 2 ]; then
+    psn_nbr=$#
+    if [ ${psn_nbr} -ge 1 ]; then
+	printf "dbg: Found ${psn_nbr} positional parameters (besides \$0):\n"
+	for ((psn_idx=1;psn_idx<=psn_nbr;psn_idx++)); do
+	    printf "dbg: psn_arg[${psn_idx}] = ${!psn_idx}\n"
+	done # !psn_idx
+    fi # !psn_nbr
+    if [ "${fl_nbr}" -ge 1 ]; then
+	printf "dbg: Processing ${fl_nbr} ERA5 raw input files:\n"
+	for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
+	    printf "dbg: fl_in[${fl_idx}] = ${fl_in[${fl_idx}]}\n"
+	done # !fl_idx
+    fi # !fl_nbr
+fi # !dbg
+
+# Human-readable summary
+date_srt=$(date +"%s")
+if [ ${dbg_lvl} -ge 0 ]; then
+    printf "era2elm, an ERA5 to E3SM ELM conversion tool, invoked with command:\n"
+    echo "${cmd_ln}"
+    printf "Started ERA5 conversion at `date`\n"
+fi # !dbg
+
+# Main Loop
+dpy_365=365 # [nbr] Days-per-year
+dpm_365=(0  31  28  31  30  31  30  31  31  30  31  30  31) # Days-per-month 1-based indexing, noleap
+dsy_365=(0   0  31  59  90 120 151 181 212 243 273 304 334) # Days elapsed between start-of-month and start-of-year, 1-based indexing, noleap
+dey_365=(0  31  59  90 120 151 181 212 243 273 304 334 365) # Days elapsed between end-of-month and start-of-year, 1-based indexing, noleap
+
+if [ "${fl_nbr}" -lt 1 ]; then
+    echo "${spt_nm}: ERROR Converter did not receive any input files, fl_nbr = ${fl_nbr}"
+    echo "${spt_nm}: HINT Re-run and provide input files through any stdin method"
+    exit 1
+fi # fl_nbr
+
+# Prepend directory string to filename
+for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
+    fl_out[${fl_idx}]="${drc_out}/$(basename ${fl_in[${fl_idx}]})"
+    #printf "fl_in[${fl_idx}]  = ${fl_in[${fl_idx}]}\n"
+    #printf "fl_out[${fl_idx}] = ${fl_out[${fl_idx}]}\n"
+    yyyymmdd=`ncks -C --cal -v time -d time,0 ${ppn_opt} ${fl_in[${fl_idx}]} | grep 'time = "'`
+    if [[ "${yyyymmdd}" =~ ^(.*)([0-9][0-9][0-9][0-9]-[01][0-9]-[0-3][0-9].?) ]]; then
+	yyyy="${yyyymmdd:12:4}"
+	mm="${yyyymmdd:17:2}"
+	dd="${yyyymmdd:20:2}"
+	yyyymmdd="${yyyy}${mm}${dd}"
+	#echo "yyyymmdd = ${yyyymmdd}"
+    else
+	echo "${spt_nm}: ERROR Unable to parse date string = \"${yyyymmdd}\" for start date. Valid format is 'yyyy-mm-dd'."
+	exit 1
+    fi # !yyyyymmdd
+    
+    var_sng=`ncks -m ${ppn_opt} ${fl_in[${fl_idx}]} | grep 'time,'`
+    var_nm[${fl_idx}]="${var_sng%(time*}"
+    var_nm[${fl_idx}]="${var_nm[${fl_idx}]#*short }"
+    #echo "var_nm[${fl_idx}] = ${var_nm[${fl_idx}]}"
+    if [ -z "${var_nm[${fl_idx}]}" ]; then
+	echo "${spt_nm}: ERROR Unable to parse variable string = \"${var_sng}\" into variable name"
+	exit 1
+    fi # !var_nm
+    drc_nm[${fl_idx}]=`var2drc ${var_nm[${fl_idx}]}`
+    #echo "drc_nm[${fl_idx}] = ${drc_nm[${fl_idx}]}"
+    
+    # Create output directory for this variable
+    if [ -n "${drc_nm}" ] && [ ! -d "${drc_out}/${drc_nm[${fl_idx}]}" ]; then 
+	cmd_mkd="mkdir -p ${drc_out}/${drc_nm[${fl_idx}]}"
+	echo ${cmd_mkd}
+	eval ${cmd_mkd}
+	if [ "$?" -ne 0 ]; then
+	    printf "${spt_nm}: ERROR Failed to create output directory. Debug this:\n${cmd_mkd}\n"
+	    printf "${spt_nm}: HINT Creating a directory requires proper write permissions\n"
+	    exit 1
+	fi # !err
+    fi # !drc_nm
+    
+    # Pre-compute time hyperslab boundaries
+    clm_idx=0
+    for mth in {01..12}; do
+	let clm_idx=${clm_idx}+1
+	mm=`printf "%02d" ${clm_idx}`
+	hyp_opt[${mth}]="-d time,${yyyy}-${mm}-01T00:00:00,${yyyy}-${mm}-${dpm_365[${mth}]}T23:59:59"
+	#echo "hyp_opt[${mth}] = ${hyp_opt[${mth}]}"
+    done # !mth
+    
+    clm_idx=0
+    for mth in {01..12}; do
+	let clm_idx=${clm_idx}+1
+	mm=`printf "%02d" ${clm_idx}`
+	# Construct output file name with pattern: elmforc.ERA5.c2018.0.25d.w10.1989-12.nc
+	fl_var_mth[${clm_idx}]="${drc_out}/${drc_nm[${fl_idx}]}/${out_nm}.${var_nm[${fl_idx}]}.${yyyy}-${mm}.nc"
+	cmd_rdr[${clm_idx}]="ncpdq -O --no_tmp_fl --reorder=-latitude ${hyp_opt[${mth}]} ${fl_in[${fl_idx}]} ${fl_var_mth[${clm_idx}]}"
+	#echo "cmd_rdr = ${cmd_rdr[${clm_idx}]}"
+	cmd_upk[${clm_idx}]="ncpdq -O --unpack ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]}"
+	#echo "cmd_upk = ${cmd_upk[${clm_idx}]}"
+	cmd_d2f[${clm_idx}]="ncpdq -O --map=dbl_flt ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]}"
+	#echo "cmd_d2f = ${cmd_d2f[${clm_idx}]}"
+	cmd_nlp[${clm_idx}]="ncap2 -O --script=\"tpd_out=${tpd_out};mm=${mm};yyyy=${yyyy}\" -S ${drc_spt}/era2elm.nco ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]}"
+	#echo "cmd_nlp = ${cmd_nlp[${clm_idx}]}"
+	cmd_rnm[${clm_idx}]="ncrename --dimension=latitude,lat --dimension=longitude,lon --variable=latitude,lat --variable=longitude,lon ${fl_var_mth[${clm_idx}]}"
+	#echo "cmd_rnm = ${cmd_rnm[${clm_idx}]}"
+	cmd_rcd[${clm_idx}]="ncks -O --exclude --variable=mm,tpd_out,yyyy --mk_rec_dmn=time ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]}"
+	#echo "cmd_rcd = ${cmd_rcd[${clm_idx}]}"
+	cmd_dff[${clm_idx}]="ncbo -O ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]}"
+	#echo "cmd_dff = ${cmd_dff[${clm_idx}]}"
+	cmd_wnd[${clm_idx}]="ncap2 -O --no_tmp_fl -s 'U10=sqrt(U^2+V^2)' ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]}"
+	#echo "cmd_wnd = ${cmd_wnd[${clm_idx}]}"
+    done # !mth
+    
+    if [ ${job_nbr} -eq 1 ] || [ ${job_nbr} -eq 2 ] || [ ${job_nbr} -eq 3 ] || [ ${job_nbr} -eq 4 ] || [ ${job_nbr} -eq 6 ] || [ ${job_nbr} -eq 12 ]; then
+	echo "Successful match of job_nbr to list of permissible values" > /dev/null
+    else
+	echo "${spt_nm}: ERROR Job number job_nbr=${job_nbr} is invalid in monthly climo mode. Must be a factor of 12. Valid values are 1, 2, 3, 4, 6, and 12. Please re-submit with valid job_nbr."
+	exit 1
+    fi # !job_nbr
+    
+#    if false; then
+    printf "\nStep 1: Hyperslab and reorder...\n"
+    [[ ${dbg_lvl} -ge 1 ]] && date_rdr=$(date +"%s")
+    # Batch number is inverse to job number, so job_nbr=1->bch_nbr=12 (serial mode, slowest), job_nbr=2->bch_nbr=6, ... job_nbr=12->bch_nbr=1 (full background mode, fastest)
+    let bch_nbr=$((12 / job_nbr))
+    for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	# clm_idx is 1-based, bch_idx is 0-based
+	let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+	    printf "Hyperslab and reorder ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} month ${clm_idx} ...\n"
+	    if [ ${dbg_lvl} -ge 1 ]; then
+		echo ${cmd_rdr[${clm_idx}]}
+	    fi # !dbg
+	    if [ ${dbg_lvl} -le 1 ]; then
+		if [ -z "${par_opt}" ]; then
+		    eval ${cmd_rdr[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR monthly hyperslab and reorder command cmd_rdr[${clm_idx}] failed. Debug this:\n${cmd_rdr[${clm_idx}]}\n"
+			exit 1
+		    fi # !err
+		else # !par_opt
+		    eval ${cmd_rdr[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+		    rdr_pid[${clm_idx}]=$!
+		fi # !par_opt
+	    fi # !dbg
+	done # !clm_idx
+	if [ -n "${par_opt}" ]; then
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		wait ${rdr_pid[${clm_idx}]}
+		if [ "$?" -ne 0 ]; then
+		    printf "${spt_nm}: ERROR monthly hyperslab and reorder cmd_rdr[${clm_idx}] failed. Debug this:\n${cmd_rdr[${clm_idx}]}\n"
+		    # 20200805: exiting parent here creates orphans, kill live children then exit
+		    for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			kill -9 ${rdr_pid[${kid_idx}]}
+		    done # !kid_idx
+		    exit 1
+		fi # !err
+	    done # !clm_idx
+	fi # !par_opt
+    done # !bch_idx
+    if [ ${dbg_lvl} -ge 1 ]; then
+	date_crr=$(date +"%s")
+	date_dff=$((date_crr-date_rdr))
+	echo "Elapsed time to hyperslab and reorder monthly ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+    fi # !dbg
+    
+    printf "\nStep 2: Unpack...\n"
+    [[ ${dbg_lvl} -ge 1 ]] && date_upk=$(date +"%s")
+    let bch_nbr=$((12 / job_nbr))
+    for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	# clm_idx is 1-based, bch_idx is 0-based
+	let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+	    printf "Unpack ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} month ${clm_idx} ...\n"
+	    if [ ${dbg_lvl} -ge 1 ]; then
+		echo ${cmd_upk[${clm_idx}]}
+	    fi # !dbg
+	    if [ ${dbg_lvl} -le 1 ]; then
+		if [ -z "${par_opt}" ]; then
+		    eval ${cmd_upk[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR monthly unpack command cmd_upk[${clm_idx}] failed. Debug this:\n${cmd_upk[${clm_idx}]}\n"
+			exit 1
+		    fi # !err
+		else # !par_opt
+		    eval ${cmd_upk[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+		    upk_pid[${clm_idx}]=$!
+		fi # !par_opt
+	    fi # !dbg
+	done # !clm_idx
+	if [ -n "${par_opt}" ]; then
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		wait ${upk_pid[${clm_idx}]}
+		if [ "$?" -ne 0 ]; then
+		    printf "${spt_nm}: ERROR monthly unpack cmd_upk[${clm_idx}] failed. Debug this:\n${cmd_upk[${clm_idx}]}\n"
+		    # 20200805: exiting parent here creates orphans, kill live children then exit
+		    for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			kill -9 ${upk_pid[${kid_idx}]}
+		    done # !kid_idx
+		    exit 1
+		fi # !err
+	    done # !clm_idx
+	fi # !par_opt
+    done # !bch_idx
+    if [ ${dbg_lvl} -ge 1 ]; then
+	date_crr=$(date +"%s")
+	date_dff=$((date_crr-date_upk))
+	echo "Elapsed time to unpack monthly ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+    fi # !dbg
+    
+    printf "\nStep 3: Demote double precision to single precision...\n"
+    [[ ${dbg_lvl} -ge 1 ]] && date_d2f=$(date +"%s")
+    let bch_nbr=$((12 / job_nbr))
+    for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	# clm_idx is 1-based, bch_idx is 0-based
+	let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+	    printf "Demote ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} month ${clm_idx} ...\n"
+	    if [ ${dbg_lvl} -ge 1 ]; then
+		echo ${cmd_d2f[${clm_idx}]}
+	    fi # !dbg
+	    if [ ${dbg_lvl} -le 1 ]; then
+		if [ -z "${par_opt}" ]; then
+		    eval ${cmd_d2f[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR monthly demote command cmd_d2f[${clm_idx}] failed. Debug this:\n${cmd_d2f[${clm_idx}]}\n"
+			exit 1
+		    fi # !err
+		else # !par_opt
+		    eval ${cmd_d2f[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+		    d2f_pid[${clm_idx}]=$!
+		fi # !par_opt
+	    fi # !dbg
+	done # !clm_idx
+	if [ -n "${par_opt}" ]; then
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		wait ${d2f_pid[${clm_idx}]}
+		if [ "$?" -ne 0 ]; then
+		    printf "${spt_nm}: ERROR monthly demote cmd_d2f[${clm_idx}] failed. Debug this:\n${cmd_d2f[${clm_idx}]}\n"
+		    # 20200805: exiting parent here creates orphans, kill live children then exit
+		    for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			kill -9 ${d2f_pid[${kid_idx}]}
+		    done # !kid_idx
+		    exit 1
+		fi # !err
+	    done # !clm_idx
+	fi # !par_opt
+    done # !bch_idx
+    if [ ${dbg_lvl} -ge 1 ]; then
+	date_crr=$(date +"%s")
+	date_dff=$((date_crr-date_d2f))
+	echo "Elapsed time to demote monthly ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+    fi # !dbg
+
+    printf "\nStep 4: Rename coordinates...\n"
+    [[ ${dbg_lvl} -ge 1 ]] && date_rnm=$(date +"%s")
+    let bch_nbr=$((12 / job_nbr))
+    for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	# clm_idx is 1-based, bch_idx is 0-based
+	let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+	    printf "Rename coordinates for ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} month ${clm_idx} ...\n"
+	    if [ ${dbg_lvl} -ge 1 ]; then
+		echo ${cmd_rnm[${clm_idx}]}
+	    fi # !dbg
+	    if [ ${dbg_lvl} -le 1 ]; then
+		if [ -z "${par_opt}" ]; then
+		    eval ${cmd_rnm[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR monthly rename command cmd_rnm[${clm_idx}] failed. Debug this:\n${cmd_rnm[${clm_idx}]}\n"
+			exit 1
+		    fi # !err
+		else # !par_opt
+		    eval ${cmd_rnm[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+		    rnm_pid[${clm_idx}]=$!
+		fi # !par_opt
+	    fi # !dbg
+	done # !clm_idx
+	if [ -n "${par_opt}" ]; then
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		wait ${rnm_pid[${clm_idx}]}
+		if [ "$?" -ne 0 ]; then
+		    printf "${spt_nm}: ERROR monthly rename cmd_rnm[${clm_idx}] failed. Debug this:\n${cmd_rnm[${clm_idx}]}\n"
+		    # 20200805: exiting parent here creates orphans, kill live children then exit
+		    for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			kill -9 ${rnm_pid[${kid_idx}]}
+		    done # !kid_idx
+		    exit 1
+		fi # !err
+	    done # !clm_idx
+	fi # !par_opt
+    done # !bch_idx
+    if [ ${dbg_lvl} -ge 1 ]; then
+	date_crr=$(date +"%s")
+	date_dff=$((date_crr-date_rnm))
+	echo "Elapsed time to rename coordinates in monthly ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+    fi # !dbg
+    
+    printf "\nStep 5: Implement noleap calendar...\n"
+    [[ ${dbg_lvl} -ge 1 ]] && date_nlp=$(date +"%s")
+    let bch_nbr=$((12 / job_nbr))
+    for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	# clm_idx is 1-based, bch_idx is 0-based
+	let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+	    printf "Implement noleap calendar for ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} month ${clm_idx} ...\n"
+	    if [ ${dbg_lvl} -ge 1 ]; then
+		echo ${cmd_nlp[${clm_idx}]}
+	    fi # !dbg
+	    if [ ${dbg_lvl} -le 1 ]; then
+		if [ -z "${par_opt}" ]; then
+		    eval ${cmd_nlp[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR monthly noleap command cmd_nlp[${clm_idx}] failed. Debug this:\n${cmd_nlp[${clm_idx}]}\n"
+			exit 1
+		    fi # !err
+		else # !par_opt
+		    eval ${cmd_nlp[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+		    nlp_pid[${clm_idx}]=$!
+		fi # !par_opt
+	    fi # !dbg
+	done # !clm_idx
+	if [ -n "${par_opt}" ]; then
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		wait ${nlp_pid[${clm_idx}]}
+		if [ "$?" -ne 0 ]; then
+		    printf "${spt_nm}: ERROR monthly noleap cmd_nlp[${clm_idx}] failed. Debug this:\n${cmd_nlp[${clm_idx}]}\n"
+		    # 20200805: exiting parent here creates orphans, kill live children then exit
+		    for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			kill -9 ${nlp_pid[${kid_idx}]}
+		    done # !kid_idx
+		    exit 1
+		fi # !err
+	    done # !clm_idx
+	fi # !par_opt
+    done # !bch_idx
+    if [ ${dbg_lvl} -ge 1 ]; then
+	date_crr=$(date +"%s")
+	date_dff=$((date_crr-date_nlp))
+	echo "Elapsed time to noleap calendar for monthly ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+    fi # !dbg
+#    fi # !false
+
+    printf "\nStep 6: Make record dimension, remove transient variables...\n"
+    [[ ${dbg_lvl} -ge 1 ]] && date_rcd=$(date +"%s")
+    let bch_nbr=$((12 / job_nbr))
+    for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	# clm_idx is 1-based, bch_idx is 0-based
+	let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+	    printf "Convert time to record dimension for ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} month ${clm_idx} ...\n"
+	    if [ ${dbg_lvl} -ge 1 ]; then
+		echo ${cmd_rcd[${clm_idx}]}
+	    fi # !dbg
+	    if [ ${dbg_lvl} -le 1 ]; then
+		if [ -z "${par_opt}" ]; then
+		    eval ${cmd_rcd[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR monthly record command cmd_rcd[${clm_idx}] failed. Debug this:\n${cmd_rcd[${clm_idx}]}\n"
+			exit 1
+		    fi # !err
+		else # !par_opt
+		    eval ${cmd_rcd[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+		    rcd_pid[${clm_idx}]=$!
+		fi # !par_opt
+	    fi # !dbg
+	done # !clm_idx
+	if [ -n "${par_opt}" ]; then
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		wait ${rcd_pid[${clm_idx}]}
+		if [ "$?" -ne 0 ]; then
+		    printf "${spt_nm}: ERROR monthly record cmd_rcd[${clm_idx}] failed. Debug this:\n${cmd_rcd[${clm_idx}]}\n"
+		    # 20200805: exiting parent here creates orphans, kill live children then exit
+		    for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			kill -9 ${rcd_pid[${kid_idx}]}
+		    done # !kid_idx
+		    exit 1
+		fi # !err
+	    done # !clm_idx
+	fi # !par_opt
+    done # !bch_idx
+    if [ ${dbg_lvl} -ge 1 ]; then
+	date_crr=$(date +"%s")
+	date_dff=$((date_crr-date_rcd))
+	echo "Elapsed time to convert time to record dimension for monthly ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+    fi # !dbg
+
+done # !fl_idx
+
+date_end=$(date +"%s")
+if [ ${dbg_lvl} -ge 0 ]; then
+    printf "Completed ERA5 conversion at `date`\n"
+    date_dff=$((date_end-date_srt))
+    echo "Elapsed time $((date_dff/60))m$((date_dff % 60))s"
+fi # !dbg
+
+exit 0
