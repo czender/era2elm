@@ -66,12 +66,14 @@ spt_pid=$$ # [nbr] Script PID (process ID)
 
 # Debugging and Benchmarking:
 # /bin/ls ~/data/era5/data_raw/1979 | era2elm
-# /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=2
-# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --drc_out=${DATA}/era5/data_out # tdew
-# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=2 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 5m27s
+# /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=1 --drc_out=${DATA}/era5/data_out
+# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=1 --drc_out=${DATA}/era5/data_out # tdew
+# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 5m27s
+# /bin/ls ~/data/era5/data_raw/1979/*0821.nc ~/data/era5/data_raw/1979/*8eb5.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 6m47 create diffuse radiation only
+# /bin/ls ~/data/era5/data_raw/1979/*a9c0.nc ~/data/era5/data_raw/1979/*cbd1.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 6m47 create wind speed only
 
 # Production usage:
-# /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 &
+# /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 &
 # /bin/ls /global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_raw/1990/*.nc | era2elm --npo --dbg=1 --job_nbr=3 --drc_out=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_out > ~/era5.txt 2>&1 & # NERSC
 
 # 20221108: Passing environment variable NCO_PATH_OVERRIDE (NPO) to ncremap in batch queues fails on Cori
@@ -346,16 +348,49 @@ function var2drc {
         drc_nm_crr='pbot'
     elif [ ${1} = 'msdwlwrf' ]; then
         drc_nm_crr='lwdn'
-    elif [ ${1} = 'msdwswrf' ] || [ ${1} = 'msdrswrf' ]; then
+    elif [ ${1} = 'msdfswrf' ] || [ ${1} = 'msdrswrf' ] || [ ${1} = 'msdwswrf' ]; then
         drc_nm_crr='swdn'
-    elif [ ${1} = 'u10' ] || [ ${1} = 'v10' ]; then
+    elif [ ${1} = 'u10' ] || [ ${1} = 'v10' ] || [ ${1} = 'w10' ]; then
         drc_nm_crr='wind'
     else
-	echo "${spt_nm}: ERROR Unable to convert ERA5 variable name = \"${1}\" to directory name"
+	echo "${spt_nm}: ERROR Unknown ERA5 variable name = \"${1}\" in function var2drc()"
 	exit 1
     fi # !1
     echo ${drc_nm_crr}
 } # !var2drc
+
+function var2cll_mth {
+    # Purpose: Provide CF cell_methods value for each variable
+    # ERA5 instantaneous ("cell_methods=time: point") variables include:
+    # d2m = 2m dew point temperature
+    # sp  = Surface pressure
+    # t2m = 2m temperature
+    # u10 = 10m u-component of wind
+    # v10 = 10m v-component of wind
+    # ERA5 time average variables include:
+
+    # ERA5 time-average variables ("cell_methods=time: mean") include:
+    # mcpr = Mean convective precipitation rate
+    # mlspr = Mean large scale precipitation rate
+    # msdwlwrf = Mean surface downward longwave radiation flux
+    # msdwswrf = Mean surface downward shortwave radiation flux
+    # msdrswrf = Mean surface direct shortwave radiation flux
+
+    # Fields derived from ERA5:
+    # msdfswrf = Mean surface diffuse shortwave radiation flux
+    # w10 = 10m wind speed
+
+    local cll_mth_crr
+    if [ ${1} = 'd2m' ] || [ ${1} = 'sp' ] || [ ${1} = 't2m' ] || [ ${1} = 'u10' ] || [ ${1} = 'v10' ] || [ ${1} = 'w10' ]; then
+        cll_mth_crr='time: point'
+    elif [ ${1} = 'mcpr' ] || [ ${1} = 'mlspr' ] || [ ${1} = 'msdfswrf' ] || [ ${1} = 'msdrswrf' ] || [ ${1} = 'msdwlwrf' ] || [ ${1} = 'msdwswrf' ]; then
+        cll_mth_crr='time: mean'
+    else
+	echo "${spt_nm}: ERROR Unknown ERA5 variable name = \"${1}\" in function var2cll_mth()"
+	exit 1
+    fi # !1
+    echo ${cll_mth_crr}
+} # !var2cll_mth
 
 function trim_leading_zeros {
     # Purpose: Trim leading zeros from string representing an integer
@@ -669,17 +704,23 @@ if [ ${dbg_lvl} -ge 0 ]; then
     printf "Started ERA5 conversion at `date`\n"
 fi # !dbg
 
-# Main Loop
 dpy_365=365 # [nbr] Days-per-year
 dpm_365=(0  31  28  31  30  31  30  31  31  30  31  30  31) # Days-per-month 1-based indexing, noleap
 dsy_365=(0   0  31  59  90 120 151 181 212 243 273 304 334) # Days elapsed between start-of-month and start-of-year, 1-based indexing, noleap
 dey_365=(0  31  59  90 120 151 181 212 243 273 304 334 365) # Days elapsed between end-of-month and start-of-year, 1-based indexing, noleap
+
+# Determine file-independent input parameters for derived fields
+drc_nm_swrf=`var2drc msdfswrf` # [sng] Directory for radiation fields
+drc_nm_wind=`var2drc w10` # [sng] Directory for wind fields
+#echo "drc_nm_swrf = ${drc_nm_swrf}"
 
 if [ "${fl_nbr}" -lt 1 ]; then
     echo "${spt_nm}: ERROR Converter did not receive any input files, fl_nbr = ${fl_nbr}"
     echo "${spt_nm}: HINT Re-run and provide input files through any stdin method"
     exit 1
 fi # fl_nbr
+
+# Main Loop
 
 # Prepend directory string to filename
 for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
@@ -706,8 +747,12 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	echo "${spt_nm}: ERROR Unable to parse variable string = \"${var_sng}\" into variable name"
 	exit 1
     fi # !var_nm
+
+    # Collect per-variable information
     drc_nm[${fl_idx}]=`var2drc ${var_nm[${fl_idx}]}`
     #echo "drc_nm[${fl_idx}] = ${drc_nm[${fl_idx}]}"
+    cll_mth[${fl_idx}]=`var2cll_mth ${var_nm[${fl_idx}]}`
+    #echo "cll_mth[${fl_idx}] = ${cll_mth[${fl_idx}]}"
     
     # Create output directory for this variable
     if [ -n "${drc_nm}" ] && [ ! -d "${drc_out}/${drc_nm[${fl_idx}]}" ]; then 
@@ -730,12 +775,16 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	#echo "hyp_opt[${clm_idx}] = ${hyp_opt[${clm_idx}]}"
     done # !mth
     
+    printf "\nProcessing file ${fl_idx} containing ${yyyy} data for variable ${var_nm[${fl_idx}]}...\n"
+    [[ ${dbg_lvl} -ge 0 ]] && date_var=$(date +"%s")
+    
     clm_idx=0
     for mth in {01..12}; do
 	let clm_idx=${clm_idx}+1
 	mm=`printf "%02d" ${clm_idx}`
 	# Construct output file name with pattern: elmforc.ERA5.c2018.0.25d.w10.1989-12.nc
 	fl_var_mth[${clm_idx}]="${drc_out}/${drc_nm[${fl_idx}]}/${out_nm}.${var_nm[${fl_idx}]}.${yyyy}-${mm}.nc"
+
 	cmd_rdr[${clm_idx}]="ncpdq -O --no_tmp_fl --reorder=-latitude ${hyp_opt[${clm_idx}]} ${fl_in[${fl_idx}]} ${fl_var_mth[${clm_idx}]}"
 	#echo "cmd_rdr = ${cmd_rdr[${clm_idx}]}"
 	cmd_upk[${clm_idx}]="ncpdq -O --unpack ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]}"
@@ -748,10 +797,79 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	#echo "cmd_rnm = ${cmd_rnm[${clm_idx}]}"
 	cmd_rcd[${clm_idx}]="ncks -O --exclude --variable=mm,tpd_out,yyyy --mk_rec_dmn=time ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]}"
 	#echo "cmd_rcd = ${cmd_rcd[${clm_idx}]}"
-	cmd_dff[${clm_idx}]="ncbo -O ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]}"
-	#echo "cmd_dff = ${cmd_dff[${clm_idx}]}"
-	cmd_wnd[${clm_idx}]="ncap2 -O --no_tmp_fl -s 'U10=sqrt(U^2+V^2)' ${fl_var_mth[${clm_idx}]} ${fl_var_mth[${clm_idx}]}"
-	#echo "cmd_wnd = ${cmd_wnd[${clm_idx}]}"
+	cmd_msv[${clm_idx}]="ncatted --attribute=cell_methods,${var_nm[${fl_idx}]},o,c,\"${cll_mth[${fl_idx}]}\" --attribute=missing_value,,d,, --attribute=_FillValue,,d,, ${fl_var_mth[${clm_idx}]}"
+	#echo "cmd_msv = ${cmd_msv[${clm_idx}]}"
+
+	if [ ${var_nm[${fl_idx}]} = 'msdwswrf' ]; then
+	    # Define required filenames/commands iff current input file is msdwswrf
+	    # This avoids repetition
+	    # Commands and filenames will be used iff both msdwswrf and msdrswrf are encountered
+
+	    # Shorter (quicker, ncap2) procedure to derive msdfswrf:
+	    # 1. Append flx_sw_dwn_ttl from fl_sw_dwn_ttl to fl_sw_dwn_drc
+	    # 2. Compute flx_sw_dwn_dff=flx_sw_dwn_ttl-flx_sw_dwn_drc, store in flx_sw_dwn_dff
+	    # Also modify metadata of flx_sw_dwn_dff to contain correct long_name
+	    # 3. Exclude variables flx_sw_dwn_ttl and flx_sw_dwn_drc from fl_sw_dwn_dff
+	    # NB: This "shorter" procedure requires only three commands and no extra (temporary) files
+
+	    # Lengthier (slower, non-ncap2) procedure to derive msdfswrf:
+	    # 1. Rename flx_sw_dwn_ttl to flx_sw_dwn_drc, place results in file named fl_sw_dwn_dff
+	    # Note that after step one the file named fl_sw_dwn_dff actually contains flx_sw_dwn_ttl data
+	    # The actual flx_sw_dwn_dff data will be appended to fl_sw_dwn_dff in step XXX below
+	    # 2. Subtract flx_sw_dwn_ttl-flx_sw_dwn_drc=flx_sw_dwn_dff, place results in fl_sw_dwn_dff_tmp
+	    # The mismatch in filenames vs content means this command appears in ncbo as
+	    # fl_dwn_sw_dff-fl_dwn_sw_drc=fl_sw_dwn_dff_tmp
+	    # 3. Append flx_sw_dwn_dff from fl_sw_dwn_dff_tmp to fl_sw_dwn_dff
+	    # Confusingly, the single variable in fl_sw_dwn_dff appears incorrectly named flx_sw_dwn_drc
+	    # 4. Rename variable flx_dwn_sw_drc in fl_sw_dwn_dff to its rightful name, flx_sw_dwn_dff
+	    # Now the single variable in fl_sw_dwn_dff is correctly named flx_sw_dwn_dff
+	    # Moreover, fl_sw_dwn_dff has all the correct ancillary variables
+	    # However, the metadata attributes of flx_sw_dwn_dff need editing
+	    # Temporary file fl_sw_dwn_dff_tmp is no longer needed, can be deleted
+	    # 5. Edit attributes of flx_sw_dwn_dff in fl_sw_dwn_dff
+	    # 6. Remove temporary file fl_sw_dwn_dff_tmp
+	    # NB: This "lengthier" procedure does not (yet) eliminate negative diffuse fluxes
+	    
+	    # Construct filenames needed for derived fields
+	    fl_msdfswrf_mth[${clm_idx}]="${drc_out}/${drc_nm_swrf}/${out_nm}.msdfswrf.${yyyy}-${mm}.nc"
+	    fl_msdrswrf_mth[${clm_idx}]="${drc_out}/${drc_nm_swrf}/${out_nm}.msdrswrf.${yyyy}-${mm}.nc"
+	    fl_msdwswrf_mth[${clm_idx}]="${drc_out}/${drc_nm_swrf}/${out_nm}.msdwswrf.${yyyy}-${mm}.nc"
+#	    fl_msdfswrf_mth_tmp[${clm_idx}]="${drc_out}/${drc_nm_swrf}/${out_nm}.msdfswrf_tmp.${yyyy}-${mm}.nc"
+
+	    cmd_dr1[${clm_idx}]="ncks -A --no_tmp_fl -C -v msdwswrf ${fl_msdwswrf_mth[${clm_idx}]} ${fl_msdrswrf_mth[${clm_idx}]}"
+	    cmd_dr2[${clm_idx}]="ncap2 -O --no_tmp_fl -s 'msdfswrf=msdwswrf-msdrswrf >> 0.0f;msdfswrf@long_name=\"Mean surface diffuse short-wave radiation flux\"' ${fl_msdrswrf_mth[${clm_idx}]} ${fl_msdfswrf_mth[${clm_idx}]}"
+	    cmd_dr3[${clm_idx}]="ncks -O -x -v msdwswrf,msdrswrf ${fl_msdfswrf_mth[${clm_idx}]} ${fl_msdfswrf_mth[${clm_idx}]}"
+#	    cmd_dr4[${clm_idx}]="/bin/rm -f ${fl_msdwswrf_mth[${clm_idx}]} ${fl_msdrswrf_mth[${clm_idx}]}"
+
+	    # Chained executables for both methods. I/O contention causes processes to become "stuck" (in top), hinders parallelization. 
+	    #cmd_drf[${clm_idx}]="ncks -A --no_tmp_fl -C -v msdwswrf ${fl_msdwswrf_mth[${clm_idx}]} ${fl_msdrswrf_mth[${clm_idx}]};ncap2 -O --no_tmp_fl -s 'msdfswrf=msdwswrf-msdrswrf >> 0.0f;msdfswrf@long_name=\"Mean surface diffuse short-wave radiation flux\"' ${fl_msdrswrf_mth[${clm_idx}]} ${fl_msdfswrf_mth[${clm_idx}]};ncks -O -x -v msdwswrf,msdrswrf ${fl_msdfswrf_mth[${clm_idx}]} ${fl_msdfswrf_mth[${clm_idx}]}"
+	    #cmd_drf[${clm_idx}]="ncrename --variable=msdwswrf,msdrswrf ${fl_msdwswrf_mth[${clm_idx}]} ${fl_msdfswrf_mth[${clm_idx}]};ncbo -O -C -v msdrswrf ${fl_msdfswrf_mth[${clm_idx}]} ${fl_msdrswrf_mth[${clm_idx}]} ${fl_msdfswrf_mth_tmp[${clm_idx}]};ncks -A --no_tmp_fl -v msdrswrf ${fl_msdfswrf_mth_tmp[${clm_idx}]} ${fl_msdfswrf_mth[${clm_idx}]};ncrename --variable=msdrswrf,msdfswrf ${fl_msdfswrf_mth_tmp[${clm_idx}]};ncatted --attribute=long_name,msdfswrf,o,c,\"Mean surface diffuse short-wave radiation flux\" ${fl_msdfswrf_mth[${clm_idx}]};/bin/rm -f ${fl_msdfswrf_mth_tmp[${clm_idx}]}"
+	    #echo "cmd_drf = ${cmd_drf[${clm_idx}]}"
+	fi # !msdwswrf
+
+	if [ ${var_nm[${fl_idx}]} = 'u10' ]; then
+	    # Define required filenames/commands iff current input file is u10
+	    # This avoids repetition
+	    # Commands and filenames will be used iff both u10 and v10 are encountered
+
+	    # Shorter (quicker, ncap2) procedure to derive w10
+	    # 1. Append u10 from fl_wnd_znl to fl_wnd_mrd
+	    # 2. Compute w10=(u10^2+v10^2)^0.5
+	    # Also modify w10 metadata to contain correct long_name
+	    # 3. Exclude variables u10, v10 from fl_w10
+	    # NB: This "shorter" procedure requires only three commands and no extra (temporary) files
+
+	    # Construct filenames needed for derived fields
+	    fl_u10_mth[${clm_idx}]="${drc_out}/${drc_nm_wind}/${out_nm}.u10.${yyyy}-${mm}.nc"
+	    fl_v10_mth[${clm_idx}]="${drc_out}/${drc_nm_wind}/${out_nm}.v10.${yyyy}-${mm}.nc"
+	    fl_w10_mth[${clm_idx}]="${drc_out}/${drc_nm_wind}/${out_nm}.w10.${yyyy}-${mm}.nc"
+
+	    cmd_wn1[${clm_idx}]="ncks -A --no_tmp_fl -C -v u10 ${fl_u10_mth[${clm_idx}]} ${fl_v10_mth[${clm_idx}]}"
+	    cmd_wn2[${clm_idx}]="ncap2 -O --no_tmp_fl -s 'w10=sqrt(u10^2+v10^2);w10@long_name=\"10 metre windspeed\"' ${fl_v10_mth[${clm_idx}]} ${fl_w10_mth[${clm_idx}]}"
+	    cmd_wn3[${clm_idx}]="ncks -O -x -v u10,v10 ${fl_w10_mth[${clm_idx}]} ${fl_w10_mth[${clm_idx}]}"
+#	    cmd_wn4[${clm_idx}]="/bin/rm -f ${fl_u10_mth[${clm_idx}]} ${fl_v10_mth[${clm_idx}]}"
+	fi # !u10
+
     done # !mth
     
     if [ ${job_nbr} -eq 1 ] || [ ${job_nbr} -eq 2 ] || [ ${job_nbr} -eq 3 ] || [ ${job_nbr} -eq 4 ] || [ ${job_nbr} -eq 6 ] || [ ${job_nbr} -eq 12 ]; then
@@ -761,7 +879,7 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	exit 1
     fi # !job_nbr
     
-#    if false; then
+    #if false; then
     printf "\nStep 1: Hyperslab and reorder...\n"
     [[ ${dbg_lvl} -ge 1 ]] && date_rdr=$(date +"%s")
     # Batch number is inverse to job number, so job_nbr=1->bch_nbr=12 (serial mode, slowest), job_nbr=2->bch_nbr=6, ... job_nbr=12->bch_nbr=1 (full background mode, fastest)
@@ -987,7 +1105,6 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	date_dff=$((date_crr-date_nlp))
 	echo "Elapsed time to noleap calendar for monthly ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
     fi # !dbg
-#    fi # !false
 
     printf "\nStep 6: Make record dimension, remove transient variables...\n"
     [[ ${dbg_lvl} -ge 1 ]] && date_rcd=$(date +"%s")
@@ -1032,6 +1149,358 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	date_crr=$(date +"%s")
 	date_dff=$((date_crr-date_rcd))
 	echo "Elapsed time to convert time to record dimension for monthly ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+    fi # !dbg
+
+    printf "\nStep 7: Eliminate missing value attributes\n"
+    [[ ${dbg_lvl} -ge 1 ]] && date_msv=$(date +"%s")
+    let bch_nbr=$((12 / job_nbr))
+    for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	# clm_idx is 1-based, bch_idx is 0-based
+	let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+	    printf "Eliminate missing value attributes for ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} month ${clm_idx} ...\n"
+	    if [ ${dbg_lvl} -ge 1 ]; then
+		echo ${cmd_msv[${clm_idx}]}
+	    fi # !dbg
+	    if [ ${dbg_lvl} -le 1 ]; then
+		if [ -z "${par_opt}" ]; then
+		    eval ${cmd_msv[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR monthly missing value command cmd_msv[${clm_idx}] failed. Debug this:\n${cmd_msv[${clm_idx}]}\n"
+			exit 1
+		    fi # !err
+		else # !par_opt
+		    eval ${cmd_msv[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+		    msv_pid[${clm_idx}]=$!
+		fi # !par_opt
+	    fi # !dbg
+	done # !clm_idx
+	if [ -n "${par_opt}" ]; then
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		wait ${msv_pid[${clm_idx}]}
+		if [ "$?" -ne 0 ]; then
+		    printf "${spt_nm}: ERROR monthly missing value cmd_msv[${clm_idx}] failed. Debug this:\n${cmd_msv[${clm_idx}]}\n"
+		    # 20200805: exiting parent here creates orphans, kill live children then exit
+		    for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			kill -9 ${msv_pid[${kid_idx}]}
+		    done # !kid_idx
+		    exit 1
+		fi # !err
+	    done # !clm_idx
+	fi # !par_opt
+    done # !bch_idx
+    if [ ${dbg_lvl} -ge 1 ]; then
+	date_crr=$(date +"%s")
+	date_dff=$((date_crr-date_msv))
+	echo "Elapsed time to eliminate missing value attributes for monthly ${var_nm[${fl_idx}]} = ${drc_nm[${fl_idx}]} data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+    fi # !dbg
+    #fi # !false
+
+    # Check if necessary inputs to derive diffuse radiation are present
+    if [ ${var_nm[${fl_idx}]} = 'msdrswrf' ]; then
+	msdrswrf[${yyyy}]='yes'
+    fi # !var_nm
+    if [ ${var_nm[${fl_idx}]} = 'msdwswrf' ]; then
+	msdwswrf[${yyyy}]='yes'
+    fi # !var_nm
+
+    if [ "${msdrswrf[${yyyy}]}" = 'yes' ] && [ "${msdwswrf[${yyyy}]}" = 'yes' ] && [ "${msdfswrf[${yyyy}]}" != 'yes' ]; then
+	
+	printf "\nStep 8: Append total solar insolation to direct beam file\n"
+	[[ ${dbg_lvl} -ge 1 ]] && date_dr1=$(date +"%s")
+	let bch_nbr=$((12 / job_nbr))
+	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	    # clm_idx is 1-based, bch_idx is 0-based
+	    let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	    let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		printf "Append total solar insolation to direct beam file for year ${yyyy} month ${clm_idx} ...\n"
+		if [ ${dbg_lvl} -ge 1 ]; then
+		    echo ${cmd_dr1[${clm_idx}]}
+		fi # !dbg
+		if [ ${dbg_lvl} -le 1 ]; then
+		    if [ -z "${par_opt}" ]; then
+			eval ${cmd_dr1[${clm_idx}]}
+			if [ "$?" -ne 0 ]; then
+			    printf "${spt_nm}: ERROR append total to direct insolation cmd_dr1[${clm_idx}] failed. Debug this:\n${cmd_dr1[${clm_idx}]}\n"
+			    exit 1
+			fi # !err
+		    else # !par_opt
+			eval ${cmd_dr1[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+			dr1_pid[${clm_idx}]=$!
+		    fi # !par_opt
+		fi # !dbg
+	    done # !clm_idx
+	    if [ -n "${par_opt}" ]; then
+		for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		    wait ${dr1_pid[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR append total to direct insolation cmd_dr1[${clm_idx}] failed. Debug this:\n${cmd_dr1[${clm_idx}]}\n"
+			# 20200805: exiting parent here creates orphans, kill live children then exit
+			for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			    kill -9 ${dr1_pid[${kid_idx}]}
+			done # !kid_idx
+			exit 1
+		    fi # !err
+		done # !clm_idx
+	    fi # !par_opt
+	done # !bch_idx
+	if [ ${dbg_lvl} -ge 1 ]; then
+	    date_crr=$(date +"%s")
+	    date_dff=$((date_crr-date_dr1))
+	    echo "Elapsed time to append total to direct insolation data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+	fi # !dbg
+
+	printf "\nStep 9: Create diffuse radiation field msdfswrf\n"
+	[[ ${dbg_lvl} -ge 1 ]] && date_dr2=$(date +"%s")
+	let bch_nbr=$((12 / job_nbr))
+	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	    # clm_idx is 1-based, bch_idx is 0-based
+	    let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	    let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		printf "Create diffuse radiation field msdfswrf as msdwswrf-msdrswrf for year ${yyyy} month ${clm_idx} ...\n"
+		if [ ${dbg_lvl} -ge 1 ]; then
+		    echo ${cmd_dr2[${clm_idx}]}
+		fi # !dbg
+		if [ ${dbg_lvl} -le 1 ]; then
+		    if [ -z "${par_opt}" ]; then
+			eval ${cmd_dr2[${clm_idx}]}
+			if [ "$?" -ne 0 ]; then
+			    printf "${spt_nm}: ERROR monthly diffuse creation cmd_dr2[${clm_idx}] failed. Debug this:\n${cmd_dr2[${clm_idx}]}\n"
+			    exit 1
+			fi # !err
+		    else # !par_opt
+			eval ${cmd_dr2[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+			dr2_pid[${clm_idx}]=$!
+		    fi # !par_opt
+		fi # !dbg
+	    done # !clm_idx
+	    if [ -n "${par_opt}" ]; then
+		for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		    wait ${dr2_pid[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR monthly diffuse creation cmd_dr2[${clm_idx}] failed. Debug this:\n${cmd_dr2[${clm_idx}]}\n"
+			# 20200805: exiting parent here creates orphans, kill live children then exit
+			for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			    kill -9 ${dr2_pid[${kid_idx}]}
+			done # !kid_idx
+			exit 1
+		    fi # !err
+		done # !clm_idx
+	    fi # !par_opt
+	done # !bch_idx
+	if [ ${dbg_lvl} -ge 1 ]; then
+	    date_crr=$(date +"%s")
+	    date_dff=$((date_crr-date_dr2))
+	    echo "Elapsed time to create diffuse radiation for for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+	fi # !dbg
+
+	printf "\nStep 10: Exclude total+direct fields from diffuse insolation file\n"
+	[[ ${dbg_lvl} -ge 1 ]] && date_dr3=$(date +"%s")
+	let bch_nbr=$((12 / job_nbr))
+	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	    # clm_idx is 1-based, bch_idx is 0-based
+	    let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	    let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		printf "Exclude total+direct fields from diffuse insolation file year ${yyyy} month ${clm_idx} ...\n"
+		if [ ${dbg_lvl} -ge 1 ]; then
+		    echo ${cmd_dr3[${clm_idx}]}
+		fi # !dbg
+		if [ ${dbg_lvl} -le 1 ]; then
+		    if [ -z "${par_opt}" ]; then
+			eval ${cmd_dr3[${clm_idx}]}
+			if [ "$?" -ne 0 ]; then
+			    printf "${spt_nm}: ERROR exclude total+direct fields cmd_dr3[${clm_idx}] failed. Debug this:\n${cmd_dr3[${clm_idx}]}\n"
+			    exit 1
+			fi # !err
+		    else # !par_opt
+			eval ${cmd_dr3[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+			dr3_pid[${clm_idx}]=$!
+		    fi # !par_opt
+		fi # !dbg
+	    done # !clm_idx
+	    if [ -n "${par_opt}" ]; then
+		for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		    wait ${dr3_pid[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR exclude total_direct fields cmd_dr3[${clm_idx}] failed. Debug this:\n${cmd_dr3[${clm_idx}]}\n"
+			# 20200805: exiting parent here creates orphans, kill live children then exit
+			for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			    kill -9 ${dr3_pid[${kid_idx}]}
+			done # !kid_idx
+			exit 1
+		    fi # !err
+		done # !clm_idx
+	    fi # !par_opt
+	done # !bch_idx
+	if [ ${dbg_lvl} -ge 1 ]; then
+	    date_crr=$(date +"%s")
+	    date_dff=$((date_crr-date_dr3))
+	    echo "Elapsed time to exclude total+direct fields from diffuse insolation file for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+	fi # !dbg
+
+	# Indicate that msdfswrf has already been created
+	msdfswrf[${yyyy}]='yes'
+	
+    fi # !msdfswrf
+
+    # Check if necessary inputs to derive wind speed are present
+    if [ ${var_nm[${fl_idx}]} = 'v10' ]; then
+	v10[${yyyy}]='yes'
+    fi # !var_nm
+    if [ ${var_nm[${fl_idx}]} = 'u10' ]; then
+	u10[${yyyy}]='yes'
+    fi # !var_nm
+
+    if [ "${v10[${yyyy}]}" = 'yes' ] && [ "${u10[${yyyy}]}" = 'yes' ] && [ "${w10[${yyyy}]}" != 'yes' ]; then
+	
+	printf "\nStep 11: Append u10 to v10 file\n"
+	[[ ${dbg_lvl} -ge 1 ]] && date_wn1=$(date +"%s")
+	let bch_nbr=$((12 / job_nbr))
+	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	    # clm_idx is 1-based, bch_idx is 0-based
+	    let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	    let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		printf "Append zonal wind data to meridional wind file for year ${yyyy} month ${clm_idx} ...\n"
+		if [ ${dbg_lvl} -ge 1 ]; then
+		    echo ${cmd_wn1[${clm_idx}]}
+		fi # !dbg
+		if [ ${dbg_lvl} -le 1 ]; then
+		    if [ -z "${par_opt}" ]; then
+			eval ${cmd_wn1[${clm_idx}]}
+			if [ "$?" -ne 0 ]; then
+			    printf "${spt_nm}: ERROR append zonal to meridional wind cmd_wn1[${clm_idx}] failed. Debug this:\n${cmd_wn1[${clm_idx}]}\n"
+			    exit 1
+			fi # !err
+		    else # !par_opt
+			eval ${cmd_wn1[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+			wn1_pid[${clm_idx}]=$!
+		    fi # !par_opt
+		fi # !dbg
+	    done # !clm_idx
+	    if [ -n "${par_opt}" ]; then
+		for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		    wait ${wn1_pid[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR append zonal to meridonal cmd_wn1[${clm_idx}] failed. Debug this:\n${cmd_wn1[${clm_idx}]}\n"
+			# 20200805: exiting parent here creates orphans, kill live children then exit
+			for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			    kill -9 ${wn1_pid[${kid_idx}]}
+			done # !kid_idx
+			exit 1
+		    fi # !err
+		done # !clm_idx
+	    fi # !par_opt
+	done # !bch_idx
+	if [ ${dbg_lvl} -ge 1 ]; then
+	    date_crr=$(date +"%s")
+	    date_dff=$((date_crr-date_wn1))
+	    echo "Elapsed time to append zonal wind data to meridional wind file for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+	fi # !dbg
+
+	printf "\nStep 12: Create wind speed field w10\n"
+	[[ ${dbg_lvl} -ge 1 ]] && date_wn2=$(date +"%s")
+	let bch_nbr=$((12 / job_nbr))
+	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	    # clm_idx is 1-based, bch_idx is 0-based
+	    let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	    let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		printf "Create wind speed field w10 as sqrt(u10^2+v10^2) for year ${yyyy} month ${clm_idx} ...\n"
+		if [ ${dbg_lvl} -ge 1 ]; then
+		    echo ${cmd_wn2[${clm_idx}]}
+		fi # !dbg
+		if [ ${dbg_lvl} -le 1 ]; then
+		    if [ -z "${par_opt}" ]; then
+			eval ${cmd_wn2[${clm_idx}]}
+			if [ "$?" -ne 0 ]; then
+			    printf "${spt_nm}: ERROR monthly wind speed creation cmd_wn2[${clm_idx}] failed. Debug this:\n${cmd_wn2[${clm_idx}]}\n"
+			    exit 1
+			fi # !err
+		    else # !par_opt
+			eval ${cmd_wn2[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+			wn2_pid[${clm_idx}]=$!
+		    fi # !par_opt
+		fi # !dbg
+	    done # !clm_idx
+	    if [ -n "${par_opt}" ]; then
+		for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		    wait ${wn2_pid[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR monthly wind speed creation cmd_wn2[${clm_idx}] failed. Debug this:\n${cmd_wn2[${clm_idx}]}\n"
+			# 20200805: exiting parent here creates orphans, kill live children then exit
+			for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			    kill -9 ${wn2_pid[${kid_idx}]}
+			done # !kid_idx
+			exit 1
+		    fi # !err
+		done # !clm_idx
+	    fi # !par_opt
+	done # !bch_idx
+	if [ ${dbg_lvl} -ge 1 ]; then
+	    date_crr=$(date +"%s")
+	    date_dff=$((date_crr-date_wn2))
+	    echo "Elapsed time to create wind speed for for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+	fi # !dbg
+
+	printf "\nStep 13: Exclude zonal+meridional fields from wind speed file\n"
+	[[ ${dbg_lvl} -ge 1 ]] && date_wn3=$(date +"%s")
+	let bch_nbr=$((12 / job_nbr))
+	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
+	    # clm_idx is 1-based, bch_idx is 0-based
+	    let clm_idx_srt=$(((bch_idx * job_nbr) + 1))
+	    let clm_idx_end=$((clm_idx_srt + job_nbr - 1))
+	    for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		printf "Exclude zonal+meridional fields from wind speed file year ${yyyy} month ${clm_idx} ...\n"
+		if [ ${dbg_lvl} -ge 1 ]; then
+		    echo ${cmd_wn3[${clm_idx}]}
+		fi # !dbg
+		if [ ${dbg_lvl} -le 1 ]; then
+		    if [ -z "${par_opt}" ]; then
+			eval ${cmd_wn3[${clm_idx}]}
+			if [ "$?" -ne 0 ]; then
+			    printf "${spt_nm}: ERROR exclude zonal+meridional fields cmd_wn3[${clm_idx}] failed. Debug this:\n${cmd_wn3[${clm_idx}]}\n"
+			    exit 1
+			fi # !err
+		    else # !par_opt
+			eval ${cmd_wn3[${clm_idx}]} ${par_opt} # eval always returns 0 on backgrounded processes
+			wn3_pid[${clm_idx}]=$!
+		    fi # !par_opt
+		fi # !dbg
+	    done # !clm_idx
+	    if [ -n "${par_opt}" ]; then
+		for ((clm_idx=clm_idx_srt;clm_idx<=clm_idx_end;clm_idx++)); do
+		    wait ${wn3_pid[${clm_idx}]}
+		    if [ "$?" -ne 0 ]; then
+			printf "${spt_nm}: ERROR exclude zonal+meridional fields cmd_wn3[${clm_idx}] failed. Debug this:\n${cmd_wn3[${clm_idx}]}\n"
+			# 20200805: exiting parent here creates orphans, kill live children then exit
+			for ((kid_idx=clm_idx+1;kid_idx<=clm_idx_end;kid_idx++)); do
+			    kill -9 ${wn3_pid[${kid_idx}]}
+			done # !kid_idx
+			exit 1
+		    fi # !err
+		done # !clm_idx
+	    fi # !par_opt
+	done # !bch_idx
+	if [ ${dbg_lvl} -ge 1 ]; then
+	    date_crr=$(date +"%s")
+	    date_dff=$((date_crr-date_wn3))
+	    echo "Elapsed time to exclude zonal+meridional fields from wind speed file for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+	fi # !dbg
+
+	# Indicate that w10 has already been created
+	w10[${yyyy}]='yes'
+	
+    fi # !w10
+    
+    if [ ${dbg_lvl} -ge 0 ]; then
+	date_crr=$(date +"%s")
+	date_dff=$((date_crr-date_var))
+	echo "Elapsed time to process ${var_nm[${fl_idx}]} data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
     fi # !dbg
 
 done # !fl_idx
