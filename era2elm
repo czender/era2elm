@@ -877,7 +877,7 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	exit 1
     fi # !job_nbr
     
-if false; then
+    #if false; then
     printf "\nProcessing file ${fl_idx} containing ${yyyy} data for variable ${var_nm[${fl_idx}]}...\n"
     [[ ${dbg_lvl} -ge 0 ]] && date_var=$(date +"%s")
     
@@ -1203,7 +1203,7 @@ if false; then
 	echo "Elapsed time to process ${var_nm[${fl_idx}]} data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
     fi # !dbg
 
-    fi # !false
+    #fi # !false
 
     # Check if necessary inputs to derive diffuse radiation are present
     if [ ${var_nm[${fl_idx}]} = 'msdrswrf' ]; then
