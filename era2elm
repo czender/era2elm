@@ -164,12 +164,7 @@ if [ "${hrd_pth}" = 'Yes' ] && [ "${NCO_PATH_OVERRIDE}" = 'Yes' ]; then
 	    export LD_LIBRARY_PATH='/home/zender/lib_cooley'\:${LD_LIBRARY_PATH} ; ;;
 	cori* | cmem* | nid[0123456789][0123456789][0123456789][0123456789][0123456789] )
 	    # 20220811 Add build environment modules
-	    module purge
-	    module load PrgEnv-intel
-	    module load cray-netcdf
-	    module load gsl/2.7
-	    module load antlr/2.7.7-intel
-	    module load udunits
+	    module load nco
 	    if [ ${spt_nm} = 'ncremap' ]; then
 		MOAB_ROOT=/project/projectdirs/e3sm/software/moab
 		TEMPESTREMAP_ROOT=/project/projectdirs/e3sm/software/tempestremap
@@ -283,6 +278,7 @@ par_srl='serial' # [sng] Parallelism: serial
 bch_pbs='No' # [sng] PBS batch (non-interactive) job
 bch_slr='No' # [sng] SLURM batch (non-interactive) job
 caseid='elmforc.ERA5.c2018.0.25d' # [sng] Case ID
+clm_nbr=12 # [nbr] Number of months per raw ERA5 dataset
 dbg_lvl=0 # [nbr] Debugging level
 drc_in='' # [sng] Input file directory
 drc_in_xmp="${DATA}/era5/data_raw/1979" # [sng] Input file directory for examples
@@ -296,6 +292,9 @@ inp_psn='No' # [sng] Input file list from positional arguments
 inp_std='No' # [sng] Input file list from stdin
 job_nbr=3 # [nbr] Job simultaneity for parallelism (NB: testing reveals 3 is faster than 12)
 job_nbr_wrn=150 # [nbr] Maximum number of simultaneous jobs before WARNING is printed
+mpi_flg='No' # [sng] Parallelize over nodes
+nco_opt='' # [sng] NCO options (e.g., '-6 -t 1')
+nd_nbr=1 # [nbr] Number of nodes
 par_opt='' # [sng] Parallel options to shell
 par_typ="${par_bck}" # [sng] Parallelism type
 std_chk='Yes' # [sng] Check stdin for input file list
@@ -653,11 +652,95 @@ if [ "${fl_in[0]}" ] && [ "$(basename ${fl_in[0]})" != "${fl_in[0]}" ]; then
     ppn_opt=''
 fi # !basename
 
+if [ "${mpi_flg}" = 'Yes' ]; then
+    if [ -n "${COBALT_NODEFILE}" ]; then 
+	nd_fl="${COBALT_NODEFILE}"
+    elif [ -n "${PBS_NODEFILE}" ]; then 
+	nd_fl="${PBS_NODEFILE}"
+    elif [ -n "${SLURM_NODELIST}" ]; then 
+	# SLURM returns compressed lists (e.g., "nid00[076-078,559-567]")
+	# Convert this to file with uncompressed list (like Cobalt, PBS)
+	# http://www.ceci-hpc.be/slurm_faq.html#Q12
+	# Save file in writable directory
+	nd_fl="${drc_out}/${spt_nm}.slurm_nodelist.pid${spt_pid}.tmp"
+	nd_lst=`scontrol show hostname ${SLURM_NODELIST}`
+	echo ${nd_lst} > ${nd_fl}
+    else
+	echo "${spt_nm}: ERROR MPI master process unable to find node-list for distributing jobs"
+	echo "${spt_nm}: ${spt_nm} uses first node-list found in \$COBALT_NODEFILE, \$PBS_NODEFILE, or \$SLURM_NODELIST"
+	echo "${spt_nm}: However, none of these environment variables are set so there is no node-list for distributing MPI jobs"
+	echo "${spt_nm}: HINT: Requesting MPI-parallelism (i.e., invoking ${spt_nm} with \"-p mpi\") in a non-MPI environment will trigger this error. Use \"-p mpi\" only when one of the preceding schedulers has allocated (for interactive use) or will allocate (for non-interactive use) the compute nodes. Otherwise use the default background parallelism (use \"-p bck\" or omit the option completely) or use serial mode (use \"-p serial\"). See http://nco.sf.net/nco.html#par_typ for more information on parallelism."
+	exit 1
+    fi # !PBS
+    mpi_nbr=${clm_nbr}
+    if [ -n "${nd_fl}" ]; then 
+	# NB: nodes are always 0-based, e.g., [0..11]
+	# For climo generation MPI index loops over months    and is 1-based, e.g., [1..17] (December is 12 and ANN is 17)
+	# For climo subsetting MPI index loops over variables and is 0-based, e.g., [0..5], as are input files
+	nd_idx=0
+	for nd in `cat ${nd_fl} | uniq` ; do
+	    nd_nm[${nd_idx}]=${nd}
+	    let nd_idx=${nd_idx}+1
+	done # !nd
+	nd_nbr=${#nd_nm[@]}
+	if [ "${nd_nbr}" -eq 0 ]; then
+	    echo "${spt_nm}: ERROR MPI-mode node number nd_nbr = ${nd_nbr}"
+	    echo "${spt_nm}: HINT Parsing the node-list for distributing MPI jobs failed"
+	    exit 1
+	fi # !nd_nbr
+	# era2elm (and ncremap) uses simple round-robin allocation based on position in input file list
+	# NB: ncclimo and ncremap employ different node-allocation algorithms:
+	# ncclimo (monthly climatology mode) assigns monthly regridding and seasonal climos to different nodes (i.e., load-balances), and likewise for seasonal-regridding and annual climo
+	# ncclimo (splitter mode) uses simple round robin based on position in variable list
+	# Only ncclimo monthly climatology-mode uses 1-based cmd_mpi array
+	# ncclimo splitter-mode, and daily and annual climatology-mode, and ncremap all use 0-based cmd_mpi array
+	# Copy host-specific mpirun syntax but not node-allocation algorithms or loop indices between ncclimo and ncremap
+	# 20160502: Remove tasks-per-node limits (ntasks, npernode) so round-robin algorithm can schedule multiple jobs on same node
+	for ((mpi_idx_zro=0;mpi_idx_zro<mpi_nbr;mpi_idx_zro++)); do
+	    mpi_idx=${mpi_idx_zro}
+	    if [ "${clm_flg}" = 'Yes' ] && [ "${clm_hfc_or_mth}" = 'Yes' ]; then 
+		# Offset MPI index from 0- to 1-based for traditional monthly-based climo generation
+		let mpi_idx=${mpi_idx_zro}+1
+	    fi # !tms_flg
+	    case "${HOSTNAME}" in 
+		andes* | blues* | blogin* | b[0123456789][0123456789][0123456789] | chrysalis* | chrlogin* | chr-[0123456789][0123456789][0123456789][0123456789] | cmem* | compy* | constance* | cori* | login[0123456789][0123456789] | n[0123456789][0123456789][0123456789][0123456789] | nid* | node* | perlmutter* )
+		    # 20210310: srun option<->long option equivalences are -N = --nodes, -n = --ntasks, -c = --cpus-per-task
+		    # NB: NERSC staff say srun automatically assigns to unique nodes even without "-L $node" argument?
+ 		    cmd_mpi[${mpi_idx}]="srun --nodelist ${nd_nm[$((${mpi_idx_zro} % ${nd_nbr}))]} --nodes=1" ; ;; # SLURM
+		*cheyenne* )
+		    export MPI_SHEPHERD=true
+		    cmd_mpi[${mpi_idx}]="mpirun ${nd_nm[$((${mpi_idx_zro} % ${nd_nbr}))]} -n 1" ; ;; # PBSPro
+		cooley* | cc[0123456789][0123456789][0123456789] | mira* ) 
+		    cmd_mpi[${mpi_idx}]="mpirun -hosts ${nd_nm[$((${mpi_idx_zro} % ${nd_nbr}))]} -n 1" ; ;; # ALCF
+		theta* )
+		    cmd_mpi[${mpi_idx}]="aprun -L ${nd_nm[$((${mpi_idx_zro} % ${nd_nbr}))]} -n 1" ; ;; # ALCF Theta
+		* )
+		    cmd_mpi[${mpi_idx}]="mpirun -H ${nd_nm[$((${mpi_idx_zro} % ${nd_nbr}))]} -n 1" ; ;; # Other (Cobalt, PBS)
+	    esac # !HOSTNAME
+	    case "${HOSTNAME}" in 
+		cori* | nid* | perlmutter* | login[0123456789][0123456789] )
+		    cmd_mpi[${mpi_idx}]="${cmd_mpi[${mpi_idx}]} --gres=craynetwork:0 --mem=${mem_mb}" ; ;; # SLURM    
+	    esac # !HOSTNAME
+	done # !mpi_idx_zro
+	if [ -n "${SLURM_NODELIST}" ]; then 
+	    /bin/rm -f ${nd_fl}
+	fi # !SLURM
+    else # !nd_fl
+	mpi_flg='No'
+	for ((mpi_idx=0;mpi_idx<=mpi_nbr;mpi_idx++)); do
+	    cmd_mpi[${mpi_idx}]=''
+	done # !mpi_idx
+    fi # !nd_fl
+    if [ -z "${job_usr}" ]; then 
+	job_nbr=${nd_nbr}
+    fi # !job_usr
+fi # !mpi_flg
+
 # If user does not explicitly set job number then base it on parallelism type
 if [ -z "${job_usr}" ]; then 
     if [ "${par_typ}" = ${par_bck} ]; then 
-	# Background mode will run one batch with all twelve months
-	job_nbr=12
+	# Each batch in background mode defaults to three months
+	job_nbr=3
     elif [ "${par_typ}" = ${par_mpi} ]; then 
 	# MPI mode is conservative and will only use one job-per-node unless told otherwise
 	job_nbr=${nd_nbr}
@@ -669,6 +752,7 @@ fi # !job_usr
 
 # Print initial state
 if [ ${dbg_lvl} -ge 2 ]; then
+    printf "dbg: clm_nbr = ${clm_nbr}\n"
     printf "dbg: dbg_lvl = ${dbg_lvl}\n"
     printf "dbg: drc_in  = ${drc_in}\n"
     printf "dbg: drc_out = ${drc_out}\n"
@@ -678,6 +762,10 @@ if [ ${dbg_lvl} -ge 2 ]; then
     printf "dbg: inp_psn = ${inp_psn}\n"
     printf "dbg: inp_std = ${inp_std}\n"
     printf "dbg: job_nbr = ${job_nbr}\n"
+    printf "dbg: mpi_flg = ${mpi_flg}\n"
+    printf "dbg: mpi_nbr = ${mpi_nbr}\n"
+    printf "dbg: nco_opt = ${nco_opt}\n"
+    printf "dbg: nd_nbr  = ${nd_nbr}\n"
     printf "dbg: par_typ = ${par_typ}\n"
     printf "dbg: ppn_opt = ${ppn_opt}\n"
 fi # !dbg
