@@ -69,11 +69,11 @@ spt_pid=$$ # [nbr] Script PID (process ID)
 # /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=1 --drc_out=${DATA}/era5/data_out
 # /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=1 --drc_out=${DATA}/era5/data_out # tdew
 # /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 5m27s
-# /bin/ls ~/data/era5/data_raw/1979/*0821.nc ~/data/era5/data_raw/1979/*8eb5.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # msdwswrf,msdrswrf spectral 6m47 create diffuse radiation only
-# /bin/ls ~/data/era5/data_raw/1979/*a9c0.nc ~/data/era5/data_raw/1979/*cbd1.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # u10,v10 spectral fxm create wind speed only
+# /bin/ls ~/data/era5/data_raw/1979/*0821.nc ~/data/era5/data_raw/1979/*8eb5.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # msdwswrf,msdrswrf Spectral 6m47 create diffuse radiation only
+# /bin/ls ~/data/era5/data_raw/1979/*a9c0.nc ~/data/era5/data_raw/1979/*cbd1.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # u10,v10 Spectral fxm create wind speed only
 
 # Production usage:
-# /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # spectral
+# /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 70m07s
 # /bin/ls /data1/amschnei/era5/data_raw/1990/*.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614 > ~/era5.txt 2>&1 & # e3sm
 # /bin/ls /global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_raw/1990/*.nc | era2elm --npo --dbg=1 --job_nbr=3 --drc_out=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_out > ~/era5.txt 2>&1 & # NERSC
 
@@ -1208,7 +1208,10 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 
     if [ "${msdrswrf[${yyyy}]}" = 'yes' ] && [ "${msdwswrf[${yyyy}]}" = 'yes' ] && [ "${msdfswrf[${yyyy}]}" != 'yes' ]; then
 	
-	printf "\nStep 8: Append total solar insolation to direct beam file\n"
+	printf "\nDeriving diffuse shortwave flux variable msdfswrf for year ${yyyy}...\n"
+	[[ ${dbg_lvl} -ge 0 ]] && date_drf=$(date +"%s")
+    
+	printf "\nStep dr1: Append total solar insolation to direct beam file\n"
 	[[ ${dbg_lvl} -ge 1 ]] && date_dr1=$(date +"%s")
 	let bch_nbr=$((12 / job_nbr))
 	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
@@ -1253,7 +1256,7 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	    echo "Elapsed time to append total to direct insolation data for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
 	fi # !dbg
 
-	printf "\nStep 9: Create diffuse radiation field msdfswrf\n"
+	printf "\nStep dr2: Create diffuse radiation field msdfswrf\n"
 	[[ ${dbg_lvl} -ge 1 ]] && date_dr2=$(date +"%s")
 	let bch_nbr=$((12 / job_nbr))
 	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
@@ -1298,7 +1301,7 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	    echo "Elapsed time to create diffuse radiation for for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
 	fi # !dbg
 
-	printf "\nStep 10: Exclude total+direct fields from diffuse insolation file\n"
+	printf "\nStep dr3: Exclude total+direct fields from diffuse insolation file\n"
 	[[ ${dbg_lvl} -ge 1 ]] && date_dr3=$(date +"%s")
 	let bch_nbr=$((12 / job_nbr))
 	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
@@ -1346,6 +1349,12 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	# Indicate that msdfswrf has already been created
 	msdfswrf[${yyyy}]='yes'
 	
+	if [ ${dbg_lvl} -ge 0 ]; then
+	    date_crr=$(date +"%s")
+	    date_dff=$((date_crr-date_drf))
+	    echo "Elapsed time to derive diffuse shortwave flux for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+	fi # !dbg
+
     fi # !msdfswrf
 
     # Check if necessary inputs to derive wind speed are present
@@ -1358,7 +1367,10 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 
     if [ "${v10[${yyyy}]}" = 'yes' ] && [ "${u10[${yyyy}]}" = 'yes' ] && [ "${w10[${yyyy}]}" != 'yes' ]; then
 	
-	printf "\nStep 11: Append u10 to v10 file\n"
+	printf "\nDeriving wind speed variable w10 for year ${yyyy}...\n"
+	[[ ${dbg_lvl} -ge 0 ]] && date_wnd=$(date +"%s")
+    
+	printf "\nStep wn1: Append u10 to v10 file\n"
 	[[ ${dbg_lvl} -ge 1 ]] && date_wn1=$(date +"%s")
 	let bch_nbr=$((12 / job_nbr))
 	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
@@ -1403,7 +1415,7 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	    echo "Elapsed time to append zonal wind data to meridional wind file for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
 	fi # !dbg
 
-	printf "\nStep 12: Create wind speed field w10\n"
+	printf "\nStep wn2: Create wind speed field w10\n"
 	[[ ${dbg_lvl} -ge 1 ]] && date_wn2=$(date +"%s")
 	let bch_nbr=$((12 / job_nbr))
 	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
@@ -1448,7 +1460,7 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	    echo "Elapsed time to create wind speed for for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
 	fi # !dbg
 
-	printf "\nStep 13: Exclude zonal+meridional fields from wind speed file\n"
+	printf "\nStep wn3: Exclude zonal+meridional fields from wind speed file\n"
 	[[ ${dbg_lvl} -ge 1 ]] && date_wn3=$(date +"%s")
 	let bch_nbr=$((12 / job_nbr))
 	for ((bch_idx=0;bch_idx<bch_nbr;bch_idx++)); do
@@ -1496,6 +1508,12 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	# Indicate that w10 has already been created
 	w10[${yyyy}]='yes'
 	
+	if [ ${dbg_lvl} -ge 0 ]; then
+	    date_crr=$(date +"%s")
+	    date_dff=$((date_crr-date_wnd))
+	    echo "Elapsed time to derive wind speed for year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+	fi # !dbg
+
     fi # !w10
     
     if [ ${dbg_lvl} -ge 0 ]; then
