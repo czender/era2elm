@@ -69,11 +69,12 @@ spt_pid=$$ # [nbr] Script PID (process ID)
 # /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=1 --drc_out=${DATA}/era5/data_out
 # /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=1 --drc_out=${DATA}/era5/data_out # tdew
 # /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 5m27s
-# /bin/ls ~/data/era5/data_raw/1979/*0821.nc ~/data/era5/data_raw/1979/*8eb5.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 6m47 create diffuse radiation only
-# /bin/ls ~/data/era5/data_raw/1979/*a9c0.nc ~/data/era5/data_raw/1979/*cbd1.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 6m47 create wind speed only
+# /bin/ls ~/data/era5/data_raw/1979/*0821.nc ~/data/era5/data_raw/1979/*8eb5.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # msdwswrf,msdrswrf spectral 6m47 create diffuse radiation only
+# /bin/ls ~/data/era5/data_raw/1979/*a9c0.nc ~/data/era5/data_raw/1979/*cbd1.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # u10,v10 spectral fxm create wind speed only
 
 # Production usage:
-# /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 &
+# /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # spectral
+# /bin/ls /data1/amschnei/era5/data_raw/1990/*.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614 > ~/era5.txt 2>&1 & # e3sm
 # /bin/ls /global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_raw/1990/*.nc | era2elm --npo --dbg=1 --job_nbr=3 --drc_out=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_out > ~/era5.txt 2>&1 & # NERSC
 
 # 20221108: Passing environment variable NCO_PATH_OVERRIDE (NPO) to ncremap in batch queues fails on Cori
