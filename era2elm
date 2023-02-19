@@ -316,6 +316,7 @@ function fnc_usg_prn { # NB: dash supports fnc_nm (){} syntax, not function fnc_
     echo " ${fnt_bld}--tpd_out${fnt_nrm}  Timesteps-per-day in output (default ${fnt_bld}${tpd_out}${fnt_nrm}) [${fnt_tlc}tpd_out, tpd, timesteps_per_day${fnt_nrm}]"
     echo "${fnt_rvr}-v${fnt_nrm} ${fnt_bld}var_lst${fnt_nrm}  Variable list (empty means all) (default ${fnt_bld}${var_lst}${fnt_nrm}) [${fnt_tlc}var_lst, variable_list, var, vars, variable, variables${fnt_nrm}]"
     echo " ${fnt_bld}--version${fnt_nrm}  Version and configuration information [${fnt_tlc}version, vrs, config, configuration, cnf${fnt_nrm}]"
+    echo "${fnt_rvr}-x${fnt_nrm} ${fnt_bld}--xcl_var${fnt_nrm}  Exclude rather than extract var_lst [${fnt_tlc}xcl_var, xcl, exclude, exclude_variables${fnt_nrm}]"
     printf "\n"
     printf "${fnt_rvr}Examples:${fnt_nrm}\n"
     printf "${fnt_bld}ls *.nc | ${spt_nm}${fnt_nrm} # Default settings\n"
@@ -412,7 +413,7 @@ fi # !arg_nbr
 # Parse command-line options:
 # http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options (see method by Adam Katz)
 # http://tuxtweaks.com/2014/05/bash-getopts
-while getopts :34567c:d:f:i:o:p:s:v:-: OPT; do
+while getopts :34567c:d:f:i:o:p:s:v:x-: OPT; do
     case ${OPT} in
 	3) fl_fmt='3' ;; # File format
 	4) fl_fmt='4' ;; # File format
@@ -426,6 +427,7 @@ while getopts :34567c:d:f:i:o:p:s:v:-: OPT; do
 	o) drc_out_usr="${OPTARG}" ;; # Output directory
 	p) par_typ="${OPTARG}" ;; # Parallelism type
 	v) var_lst="${OPTARG}" ;; # Variables
+	x) xcl_flg='Yes' ;; # Exclude variable list
 	-) LONG_OPTARG="${OPTARG#*=}"
 	   case ${OPTARG} in
 	       # Hereafter ${OPTARG} is long argument key, and ${LONG_OPTARG}, if any, is long argument value
@@ -447,6 +449,7 @@ while getopts :34567c:d:f:i:o:p:s:v:-: OPT; do
 	       version | vrs | config | configuration | cnf ) vrs_prn='Yes' ;; # # Print version information
 	       version=?* | vrs=?* | config=?* | configuration=?* | cnf=?* ) echo "No argument allowed for --${OPTARG switch}" >&2; exit 1 ;; # # Print version information
 	       xcl_var | xcl | exclude | exclude_variables ) xcl_flg='Yes' ;; # # Exclude rather than extract variable list
+	       xcl_var=?* | xcl=?* | exclude=?* | exclude_variables=?* ) echo "No argument allowed for --${OPTARG switch}" >&2; exit 1 ;; # # Exclude rather than extract variable list
                '' ) break ;; # "--" terminates argument processing
                * ) printf "\nERROR: Unrecognized option ${fnt_bld}--${OPTARG}${fnt_nrm}\n" >&2; fnc_usg_prn ;;
 	   esac ;; # !OPTARG
@@ -551,6 +554,10 @@ fi # !drc_in
 
 # Derived variables
 if [ -n "${drc_out_usr}" ]; then
+    chr_fst=${drc_out_usr:0:1}
+    if [ "${chr_fst}" = '-' ]; then
+	printf "${spt_nm}: WARNING first character of user-specified output directory drc_out is \"${chr_fst}\", which looks like an option itself. Be sure the ${spt_nm} '-O' option is followed by an argument that specifies the output directory for processed files. The '-O' option requires a pathname argument, and should not be confused with the '-O' flag (which takes no argument) used in the rest of NCO to force overwriting files (${spt_nm} automatically overwrites existing output files).\n"
+    fi # !chr_fst
     # Fancy %/ syntax removes trailing slash (e.g., from $TMPDIR)
     drc_out="${drc_out_usr%/}"
 fi # !drc_out_usr
@@ -559,6 +566,12 @@ fi # !drc_out_usr
 
 # Create output directory
 if [ -n "${drc_out}" ] && [ ! -d "${drc_out}" ]; then 
+    chr_fst=${drc_out:0:1}
+    if [ "${chr_fst}" = '-' ]; then
+	echo "${spt_nm}: ERROR Attempting to mkdir user-specified output directory \"${drc_out}\" will fail because directory name begins with '-' which is an option indicator"
+	echo "${spt_nm}: HINT Specify output directory name that does not begin with '-'"
+	exit 1
+    fi # !chr_fst
     cmd_mkd="mkdir -p ${drc_out}"
     eval ${cmd_mkd}
     if [ "$?" -ne 0 ]; then
