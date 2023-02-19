@@ -65,7 +65,8 @@ spt_pid=$$ # [nbr] Script PID (process ID)
 # ln -s ~/era5/era2elm ~/sh/era2elm
 
 # Debugging and Benchmarking:
-# /bin/ls ~/data/era5/data_raw/1979 | era2elm
+# /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm
+# /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm -v tdew --dbg=2 --drc_out=${DATA}/era5/data_out
 # /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=1 --drc_out=${DATA}/era5/data_out
 # /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=1 --drc_out=${DATA}/era5/data_out # tdew
 # /bin/ls ~/data/era5/data_raw/1979/*d8ee.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 5m27s
@@ -163,7 +164,7 @@ if [ "${hrd_pth}" = 'Yes' ] && [ "${NCO_PATH_OVERRIDE}" = 'Yes' ]; then
 	    export PATH='/home/zender/bin_cooley'\:${PATH}
 	    export LD_LIBRARY_PATH='/home/zender/lib_cooley'\:${LD_LIBRARY_PATH} ; ;;
 	cori* | cmem* | nid[0123456789][0123456789][0123456789][0123456789][0123456789] )
-	    # 20220811 Add build environment modules
+	    # 20230215 Use NERSC-compiled module since Cori now missing Intel library used by personal executables
 	    module load nco ; ;;
 	mira* )
 	    export PATH='/home/zender/bin_mira'\:${PATH}
@@ -290,6 +291,7 @@ par_typ="${par_bck}" # [sng] Parallelism type
 std_chk='Yes' # [sng] Check stdin for input file list
 tpd_out=24 # [nbr] Timesteps-per-day in output
 vrs_prn='No' # [sng] Print version information
+xcl_flg='No' # [sng] Exclude rather than extract variable list
 
 function fnc_usg_prn { # NB: dash supports fnc_nm (){} syntax, not function fnc_nm{} syntax
     # Print usage
@@ -312,6 +314,7 @@ function fnc_usg_prn { # NB: dash supports fnc_nm (){} syntax, not function fnc_
     echo "${fnt_rvr}-o${fnt_nrm} ${fnt_bld}drc_out${fnt_nrm}  Output directory (default ${fnt_bld}${drc_out}${fnt_nrm}) [${fnt_tlc}drc_out, out_drc, dir_out, out_dir, output${fnt_nrm}]"
     echo "${fnt_rvr}-p${fnt_nrm} ${fnt_bld}par_typ${fnt_nrm}  Parallelism type (default ${fnt_bld}${par_typ}${fnt_nrm}) [${fnt_tlc}par_typ, par_md, parallel_type, parallel_mode, parallel${fnt_nrm}] [${fnt_tlc}serial | background | mpi${fnt_nrm}]"
     echo " ${fnt_bld}--tpd_out${fnt_nrm}  Timesteps-per-day in output (default ${fnt_bld}${tpd_out}${fnt_nrm}) [${fnt_tlc}tpd_out, tpd, timesteps_per_day${fnt_nrm}]"
+    echo "${fnt_rvr}-v${fnt_nrm} ${fnt_bld}var_lst${fnt_nrm}  Variable list (empty means all) (default ${fnt_bld}${var_lst}${fnt_nrm}) [${fnt_tlc}var_lst, variable_list, var, vars, variable, variables${fnt_nrm}]"
     echo " ${fnt_bld}--version${fnt_nrm}  Version and configuration information [${fnt_tlc}version, vrs, config, configuration, cnf${fnt_nrm}]"
     printf "\n"
     printf "${fnt_rvr}Examples:${fnt_nrm}\n"
@@ -409,7 +412,7 @@ fi # !arg_nbr
 # Parse command-line options:
 # http://stackoverflow.com/questions/402377/using-getopts-in-bash-shell-script-to-get-long-and-short-command-line-options (see method by Adam Katz)
 # http://tuxtweaks.com/2014/05/bash-getopts
-while getopts :34567c:d:f:i:o:p:s:-: OPT; do
+while getopts :34567c:d:f:i:o:p:s:v:-: OPT; do
     case ${OPT} in
 	3) fl_fmt='3' ;; # File format
 	4) fl_fmt='4' ;; # File format
@@ -422,6 +425,7 @@ while getopts :34567c:d:f:i:o:p:s:-: OPT; do
 	i) drc_in="${OPTARG}" ;; # Input directory
 	o) drc_out_usr="${OPTARG}" ;; # Output directory
 	p) par_typ="${OPTARG}" ;; # Parallelism type
+	v) var_lst="${OPTARG}" ;; # Variables
 	-) LONG_OPTARG="${OPTARG#*=}"
 	   case ${OPTARG} in
 	       # Hereafter ${OPTARG} is long argument key, and ${LONG_OPTARG}, if any, is long argument value
@@ -439,8 +443,10 @@ while getopts :34567c:d:f:i:o:p:s:-: OPT; do
 	       job_nbr=?* | job_number=?* | jobs=?* ) job_usr="${LONG_OPTARG}" ;; # -j # Job simultaneity
 	       par_typ=?* | par_md=?* | parallel_type=?* | parallel_mode=?* | parallel=?* ) par_typ="${LONG_OPTARG}" ;; # -p # Parallelism type
 	       tpd_out=?* | tpd=?* | timesteps_per_day=?* ) tpd_usr="${LONG_OPTARG}" ;; # # Timesteps-per-day in output
+	       var_lst=?* | variable_list=?* | var=?* | vars=?* | variable=?* | variables=?* ) var_lst="${LONG_OPTARG}" ;; # -v # Variables
 	       version | vrs | config | configuration | cnf ) vrs_prn='Yes' ;; # # Print version information
 	       version=?* | vrs=?* | config=?* | configuration=?* | cnf=?* ) echo "No argument allowed for --${OPTARG switch}" >&2; exit 1 ;; # # Print version information
+	       xcl_var | xcl | exclude | exclude_variables ) xcl_flg='Yes' ;; # # Exclude rather than extract variable list
                '' ) break ;; # "--" terminates argument processing
                * ) printf "\nERROR: Unrecognized option ${fnt_bld}--${OPTARG}${fnt_nrm}\n" >&2; fnc_usg_prn ;;
 	   esac ;; # !OPTARG
@@ -610,6 +616,21 @@ fi # !par_typ
 if [ -n "${tpd_usr}" ]; then 
     tpd_out="${tpd_usr}"
 fi # !tpd_usr
+if [ -n "${var_lst}" ]; then 
+    # Which variables are requested?
+    # http://stackoverflow.com/questions/27702452/loop-through-a-comma-separated-shell-variable
+    echo "Parsing var_lst..."
+    var_nbr=0 # [sng] Number of variables to process
+    for var in ${var_lst//,/ }; do
+	var_rqs[${var_nbr}]=${var}
+	# NB: Requested variables are 0-based, defined variables are 0-based
+	echo "Assigned var = ${var} to var_rqs[${var_nbr}]..."
+	let var_nbr=${var_nbr}+1
+    done # !var_lst
+    for ((var_idx=0;var_idx<var_nbr;var_idx++)); do
+	printf "dbg: var_rqs[${var_idx}] = ${var_rqs[${var_idx}]}\n"
+    done # !var_idx
+fi # !var_lst
 
 if [ ${inp_glb} = 'Yes' ]; then 
     for fl in "${drc_in}"/*.nc "${drc_in}"/*.nc3 "${drc_in}"/*.nc4 "${drc_in}"/*.nc5 "${drc_in}"/*.nc6 "${drc_in}"/*.nc7 "${drc_in}"/*.cdf "${drc_in}"/*.hdf "${drc_in}"/*.he5 "${drc_in}"/*.h5 ; do
@@ -758,6 +779,9 @@ if [ ${dbg_lvl} -ge 2 ]; then
     printf "dbg: nd_nbr  = ${nd_nbr}\n"
     printf "dbg: par_typ = ${par_typ}\n"
     printf "dbg: ppn_opt = ${ppn_opt}\n"
+    printf "dbg: var_lst = ${var_lst}\n"
+    printf "dbg: var_nbr = ${var_nbr}\n"
+    printf "dbg: xcl_flg = ${xcl_flg}\n"
 fi # !dbg
 if [ ${dbg_lvl} -ge 2 ]; then
     psn_nbr=$#
@@ -773,6 +797,12 @@ if [ ${dbg_lvl} -ge 2 ]; then
 	    printf "dbg: fl_in[${fl_idx}] = ${fl_in[${fl_idx}]}\n"
 	done # !fl_idx
     fi # !fl_nbr
+    if [ "${var_nbr}" -ge 1 ]; then
+	printf "dbg: Processing ${var_nbr} ERA5 raw input files:\n"
+	for ((var_idx=0;var_idx<var_nbr;var_idx++)); do
+	    printf "dbg: var_rqs[${var_idx}] = ${var_rqs[${var_idx}]}\n"
+	done # !var_idx
+    fi # !var_nbr
 fi # !dbg
 
 # Human-readable summary
@@ -832,7 +862,31 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
     #echo "drc_nm[${fl_idx}] = ${drc_nm[${fl_idx}]}"
     cll_mth[${fl_idx}]=`var2cll_mth ${var_nm[${fl_idx}]}`
     #echo "cll_mth[${fl_idx}] = ${cll_mth[${fl_idx}]}"
-    
+
+    # Process this file or skip it based on whether the field it contains is in extraction/exclusion list
+    if [ -n "${var_lst}" ]; then 
+	for ((var_idx=0;var_idx<${var_nbr};var_idx++)); do
+	    if [ "${var_rqs[${var_idx}]}" = "${var_nm[${fl_idx}]}" ] || [ "${var_rqs[${var_idx}]}" = "${drc_nm[${fl_idx}]}" ]; then
+		break;
+	    fi # !var_rqs 
+	done # !var_idx
+	if [ "${var_idx}" -eq "${var_nbr}" ]; then
+	    # Current variable was not found in list
+	    if [ "${xcl_flg}" = 'No' ]; then
+		# Variable in current file is not in extraction list, so continue to next file
+		[[ ${dbg_lvl} -ge 1 ]] && printf "\nIntentionally skipping file ${fl_idx} containing variable ${var_nm[${fl_idx}]} for directory ${drc_nm[${fl_idx}]}...\n"
+		continue;
+	    fi # !var_idx
+	else # !
+	    # Current variable was found in list
+	    if [ "${xcl_flg}" = 'Yes' ]; then
+		# Variable in current file is in exclusion list, so continue to next file
+		[[ ${dbg_lvl} -ge 1 ]] && printf "\nIntentionally skipping file ${fl_idx} containing variable ${var_nm[${fl_idx}]} for directory ${drc_nm[${fl_idx}]}...\n"
+		continue;
+	    fi # !var_idx
+	fi # !var_idx
+    fi # !var_lst
+
     # Create output directory for this variable
     if [ -n "${drc_nm}" ] && [ ! -d "${drc_out}/${drc_nm[${fl_idx}]}" ]; then 
 	cmd_mkd="mkdir -p ${drc_out}/${drc_nm[${fl_idx}]}"
@@ -1283,7 +1337,7 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 
     #fi # !false
 
-    # Check if necessary inputs to derive diffuse radiation are present
+    # Check whether necessary inputs to derive diffuse radiation are present
     if [ ${var_nm[${fl_idx}]} = 'msdrswrf' ]; then
 	msdrswrf[${yyyy}]='yes'
     fi # !var_nm
@@ -1442,7 +1496,7 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 
     fi # !msdfswrf
 
-    # Check if necessary inputs to derive wind speed are present
+    # Check whether necessary inputs to derive wind speed are present
     if [ ${var_nm[${fl_idx}]} = 'v10' ]; then
 	v10[${yyyy}]='yes'
     fi # !var_nm
