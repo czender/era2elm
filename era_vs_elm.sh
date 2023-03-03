@@ -58,13 +58,12 @@ function var2elm {
     echo ${var_nm_elm}
 } # !var2elm
 
-#for var_era in t2m sp w10 msdwlwrf; do
-for var_era in t2m; do
+for var_era in t2m sp w10 msdwlwrf; do
+#for var_era in t2m; do
     sbd_era=`var2drc ${var_era}`
     var_elm=`var2elm ${var_era}`
     cd ${drc_era}/${sbd_era}
-#    for fl in `ls elmforc.ERA5.c2018.0.25d.${var_era}.${yyyy}-??.nc`; do
-    for fl in `ls elmforc.ERA5.c2018.0.25d.${var_era}.${yyyy}-01.nc`; do
+    for fl in `ls elmforc.ERA5.c2018.0.25d.${var_era}.${yyyy}-??.nc`; do
     	echo "ERA5 fl=${fl}"
 	ncra -O ${fl} ${DATA}/era5/clm/${fl}
 	ncremap -v ${var_era} --map=${DATA}/maps/map_era5_s2n_to_r05_aave.20230301.nc ${DATA}/era5/clm/${fl} ${DATA}/era5/rgr/${fl}
