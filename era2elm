@@ -832,7 +832,7 @@ dsy_365=(0   0  31  59  90 120 151 181 212 243 273 304 334) # Days elapsed betwe
 dey_365=(0  31  59  90 120 151 181 212 243 273 304 334 365) # Days elapsed between end-of-month and start-of-year, 1-based indexing, noleap
 
 # Determine file-independent input parameters for derived fields
-drc_nm_swrf=`var2drc msdfswrf` # [sng] Directory for radiation fields
+drc_nm_swrf=`var2drc msdfswrf` # [sng] Directory for solar radiation fields
 drc_nm_wind=`var2drc w10` # [sng] Directory for wind fields
 #echo "drc_nm_swrf = ${drc_nm_swrf}"
 
