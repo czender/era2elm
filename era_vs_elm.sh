@@ -63,6 +63,7 @@ for var_era in t2m sp w10 msdwlwrf; do
     sbd_era=`var2drc ${var_era}`
     var_elm=`var2elm ${var_era}`
     cd ${drc_era}/${sbd_era}
+    if false; then
     for fl in `ls elmforc.ERA5.c2018.0.25d.${var_era}.${yyyy}-??.nc`; do
     	echo "ERA5 fl=${fl}"
 	ncra -O ${fl} ${DATA}/era5/clm/${fl}
@@ -70,9 +71,11 @@ for var_era in t2m sp w10 msdwlwrf; do
 	ncrename -v ${var_era},${var_elm} ${DATA}/era5/rgr/${fl}
 	ncks --append -C -v landfrac ${DATA}/grids/elm_landfrac_r05.nc ${DATA}/era5/rgr/${fl}
     done # !fl
-    ncrcat -O `ls elmforc.ERA5.c2018.0.25d.${var_era}.${yyyy}-??.nc` ${DATA}/era5/rgr/era5_${yyyy}_0112_${var_elm}.nc
-    ncbo -O ${DATA}/r05/raw/elm_20230224.h0.${yyyy}.nc ${DATA}/era5/rgr/era5_${yyyy}_0112_${var_elm}.nc ~/elm-era_${yyyy}_0112_${var_elm}.nc
+    fi # !false
+    cd ${DATA}/era5/rgr
+    ncrcat -O elmforc.ERA5.c2018.0.25d.${var_era}.${yyyy}-??.nc ${DATA}/era5/rgr/era5_${yyyy}_0112_${var_elm}.nc
+    ncbo -O ${drc_elm}/${fl_h0_elm} ${DATA}/era5/rgr/era5_${yyyy}_0112_${var_elm}.nc ~/elm-era_${yyyy}_0112_${var_elm}.nc
     ncra -O ~/elm-era_${yyyy}_0112_${var_elm}.nc ~/elm-era_${yyyy}_${var_elm}.nc
     scp ~/elm-era_${yyyy}*_${var_elm}.nc e3sm.ess.uci.edu:
-    # scp 'e3sm.ess.uci.edu:elm-era_${yyyy}*_${var_elm}.nc' ~ 
+    # scp "e3sm.ess.uci.edu:elm-era_${yyyy}*_${var_elm}.nc" ~
 done # !var_era
