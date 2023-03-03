@@ -63,7 +63,7 @@ for var_era in t2m sp w10 msdwlwrf; do
     sbd_era=`var2drc ${var_era}`
     var_elm=`var2elm ${var_era}`
     cd ${drc_era}/${sbd_era}
-    if false; then
+#    if false; then
     for fl in `ls elmforc.ERA5.c2018.0.25d.${var_era}.${yyyy}-??.nc`; do
     	echo "ERA5 fl=${fl}"
 	ncra -O ${fl} ${DATA}/era5/clm/${fl}
@@ -71,7 +71,7 @@ for var_era in t2m sp w10 msdwlwrf; do
 	ncrename -v ${var_era},${var_elm} ${DATA}/era5/rgr/${fl/0.25d/r05}
 	ncks --append -C -v landfrac ${DATA}/grids/elm_landfrac_r05.nc ${DATA}/era5/rgr/${fl/0.25d/r05}
     done # !fl
-    fi # !false
+#    fi # !false
     cd ${DATA}/era5/rgr
     ncrcat -O elmforc.ERA5.c2018.r05.${var_era}.${yyyy}-??.nc ${DATA}/era5/rgr/era5_r05_${yyyy}_0112_${var_elm}.nc
     ncbo -O ${drc_elm}/${fl_h0_elm} ${DATA}/era5/rgr/era5_r05_${yyyy}_0112_${var_elm}.nc ~/elm-era_r05_${yyyy}_0112_${var_elm}.nc
