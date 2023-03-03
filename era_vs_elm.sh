@@ -67,13 +67,13 @@ for var_era in t2m sp w10 msdwlwrf; do
     for fl in `ls elmforc.ERA5.c2018.0.25d.${var_era}.${yyyy}-??.nc`; do
     	echo "ERA5 fl=${fl}"
 	ncra -O ${fl} ${DATA}/era5/clm/${fl}
-	ncremap -v ${var_era} --map=${DATA}/maps/map_era5_s2n_to_r05_aave.20230301.nc ${DATA}/era5/clm/${fl} ${DATA}/era5/rgr/${fl}
-	ncrename -v ${var_era},${var_elm} ${DATA}/era5/rgr/${fl}
-	ncks --append -C -v landfrac ${DATA}/grids/elm_landfrac_r05.nc ${DATA}/era5/rgr/${fl}
+	ncremap -v ${var_era} --map=${DATA}/maps/map_era5_s2n_to_r05_aave.20230301.nc ${DATA}/era5/clm/${fl} ${DATA}/era5/rgr/${fl/0.25d/r05}
+	ncrename -v ${var_era},${var_elm} ${DATA}/era5/rgr/${fl/0.25d/r05}
+	ncks --append -C -v landfrac ${DATA}/grids/elm_landfrac_r05.nc ${DATA}/era5/rgr/${fl/0.25d/r05}
     done # !fl
     fi # !false
     cd ${DATA}/era5/rgr
-    ncrcat -O elmforc.ERA5.c2018.0.25d.${var_era}.${yyyy}-??.nc ${DATA}/era5/rgr/era5_${yyyy}_0112_${var_elm}.nc
+    ncrcat -O elmforc.ERA5.c2018.r05.${var_era}.${yyyy}-??.nc ${DATA}/era5/rgr/era5_${yyyy}_0112_${var_elm}.nc
     ncbo -O ${drc_elm}/${fl_h0_elm} ${DATA}/era5/rgr/era5_${yyyy}_0112_${var_elm}.nc ~/elm-era_${yyyy}_0112_${var_elm}.nc
     ncra -O ~/elm-era_${yyyy}_0112_${var_elm}.nc ~/elm-era_${yyyy}_${var_elm}.nc
     scp ~/elm-era_${yyyy}*_${var_elm}.nc e3sm.ess.uci.edu:
