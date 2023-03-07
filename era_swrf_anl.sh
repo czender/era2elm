@@ -2,6 +2,13 @@
 
 # Purpose: Analyze statistics of ERA5 aphysical inferred diffuse fluxes
 
+# Usage:
+# screen
+# time era_swrf_anl.sh > ~/era_swrf_anl.out 2>&1 &
+# Ctl-A D # Detach screen
+# screen -ls # list screens
+# screen -r <ID> # re-attach screen
+
 drc_in=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/swdn
 cd ${drc_in}
 for yyyy in 1980; do
