@@ -361,7 +361,6 @@ function var2cll_mth {
     # t2m = 2m temperature
     # u10 = 10m u-component of wind
     # v10 = 10m v-component of wind
-    # ERA5 time average variables include:
 
     # ERA5 time-average variables ("cell_methods=time: mean") include:
     # mcpr = Mean convective precipitation rate
