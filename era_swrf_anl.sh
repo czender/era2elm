@@ -28,7 +28,8 @@ for yyyy in 1980; do
 	ncrename -O -v msdwswrf,msdfswrf ${fl_msdwswrf_in} ${fl_msdwswrf_out} 
 	ncrename -O -v msdrswrf,msdfswrf ${fl_msdrswrf_in} ${fl_msdrswrf_out} 
 	ncbo -O ${fl_msdwswrf_out} ${fl_msdrswrf_out} ${fl_msdfswrf}
-	ncap2 -O -4 -v -s 'msdfswrf_err=msdfswrf;msdfswrf_err=msdfswrf_err << 0.0f;err_flg=0*msdfswrf_err;where(msdfswrf < 0.0f) err_flg=1; elsewhere err_flg=0;err_ttl=err_flg.total();nbr_ttl=msdfswrf.size();err_frc=1.0*err_ttl/nbr_ttl' ${fl_msdfswrf} ${fl_err_stt}
+	# NB: Need netCDF4 format because .size() returns type uint64
+	ncap2 -O -4 -v -s 'msdfswrf_err=msdfswrf;err_flg=0*msdfswrf;where(msdfswrf < 0.0f){err_flg=1;}elsewhere{msdfswrf_err=msdfswrf.get_miss();err_flg=err_flg.get_miss();}err_ttl=err_flg.total();nbr_ttl=msdfswrf.size();err_frc=1.0*err_ttl/nbr_ttl' ${fl_msdfswrf} ${fl_err_stt}
 	ncra -O -y ttl -v err_flg ${fl_err_stt} ${fl_err_ttl}
 	ncra -O ${fl_err_stt} ${fl_err_avg}
     done # !mth
