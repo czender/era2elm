@@ -9,37 +9,42 @@
 # screen -ls # list screens
 # screen -r <ID> # re-attach screen
 
-drc_in=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_out/swdn
+drc_in='/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_out/swdn'
+drc_out="${DATA}/era5/clm"
 cd ${drc_in}
 for yyyy in 1980; do
 #    if false; then
     for mth in {1..12}; do
         mm=`printf "%02d" $mth`
-	fl_msdwswrf="elmforc.ERA5.c2018.0.25d.msdwswrf.${yyyy}-${mm}.nc"
-	fl_msdrswrf="elmforc.ERA5.c2018.0.25d.msdrswrf.${yyyy}-${mm}.nc"
-	fl_err="${DATA}/era5/clm/era5_msdfswrf_err_${yyyy}${mm}.nc"
-	fl_err_stt="${DATA}/era5/clm/era5_msdfswrf_err_stt_${yyyy}${mm}.nc"
-	fl_err_ttl="${DATA}/era5/clm/era5_msdfswrf_err_ttl_${yyyy}${mm}_t.nc"
-	fl_err_avg="${DATA}/era5/clm/era5_msdfswrf_err_avg_${yyyy}${mm}_t.nc"
-	echo "Processing ${fl_err}..."
-	ncbo -O ${fl_msdwswrf} ${fl_msdrswrf} ${fl_err}
-	ncap2 -O -4 -v -s 'msdfswrf_err=float(msdfswrf);msdfswrf_err=msdfswrf_err << 0.0f;err_flg=0*msdfswrf_err;where(msdfswrf < 0.0f) err_flg=1; elsewhere err_flg=0;err_ttl=err_flg.total();nbr_ttl=msdfswrf.size();err_frc=1.0*err_ttl/nbr_ttl' ${fl_err} ${fl_err_stt}
+	fl_msdwswrf_in="elmforc.ERA5.c2018.0.25d.msdwswrf.${yyyy}-${mm}.nc"
+	fl_msdrswrf_in="elmforc.ERA5.c2018.0.25d.msdrswrf.${yyyy}-${mm}.nc"
+	fl_msdwswrf_out="${drc_out}/${fl_msdwswrf_in}"
+	fl_msdrswrf_out="${drc_out}/${fl_msdrswrf_in}"
+	fl_msdfswrf="${drc_out}/era5_msdfswrf_err_${yyyy}${mm}.nc"
+	fl_err_stt="${drc_out}/era5_msdfswrf_err_stt_${yyyy}${mm}.nc"
+	fl_err_ttl="${drc_out}/era5_msdfswrf_err_ttl_${yyyy}${mm}_t.nc"
+	fl_err_avg="${drc_out}/era5_msdfswrf_err_avg_${yyyy}${mm}_t.nc"
+	echo "Processing ${fl_msdfswrf}..."
+	ncrename -O -v msdwswrf,msdfswrf ${fl_msdwswrf_in} ${fl_msdwswrf_out} 
+	ncrename -O -v msdrswrf,msdfswrf ${fl_msdrswrf_in} ${fl_msdrswrf_out} 
+	ncbo -O ${fl_msdwswrf_out} ${fl_msdrswrf_out} ${fl_msdfswrf}
+	ncap2 -O -4 -v -s 'msdfswrf_err=msdfswrf;msdfswrf_err=msdfswrf_err << 0.0f;err_flg=0*msdfswrf_err;where(msdfswrf < 0.0f) err_flg=1; elsewhere err_flg=0;err_ttl=err_flg.total();nbr_ttl=msdfswrf.size();err_frc=1.0*err_ttl/nbr_ttl' ${fl_msdfswrf} ${fl_err_stt}
 	ncra -O -y ttl -v err_flg ${fl_err_stt} ${fl_err_ttl}
 	ncra -O ${fl_err_stt} ${fl_err_avg}
     done # !mth
 #    fi # !false
 
     # Annual cycle of errors
-    ncrcat -O ${DATA}/era5/clm/era5_msdfswrf_err_ttl_${yyyy}??_t.nc ${DATA}/era5/clm/era5_msdfswrf_err_ttl_${yyyy}0112_t.nc
-    ncrcat -O ${DATA}/era5/clm/era5_msdfswrf_err_avg_${yyyy}??_t.nc ${DATA}/era5/clm/era5_msdfswrf_err_avg_${yyyy}0112_t.nc
+    ncrcat -O ${drc_out}/era5_msdfswrf_err_ttl_${yyyy}??_t.nc ${drc_out}/era5_msdfswrf_err_ttl_${yyyy}0112_t.nc
+    ncrcat -O ${drc_out}/era5_msdfswrf_err_avg_${yyyy}??_t.nc ${drc_out}/era5_msdfswrf_err_avg_${yyyy}0112_t.nc
 
     # Annual mean of errors
-    ncra -O -y ttl ${DATA}/era5/clm/era5_msdfswrf_err_ttl_${yyyy}0112_t.nc ${DATA}/era5/clm/era5_msdfswrf_err_ttl_${yyyy}_t.nc
-    ncra -O ${DATA}/era5/clm/era5_msdfswrf_err_avg_${yyyy}0112_t.nc ${DATA}/era5/clm/era5_msdfswrf_err_avg_${yyyy}_t.nc
+    ncra -O -y ttl ${drc_out}/era5_msdfswrf_err_ttl_${yyyy}0112_t.nc ${drc_out}/era5_msdfswrf_err_ttl_${yyyy}_t.nc
+    ncra -O ${drc_out}/era5_msdfswrf_err_avg_${yyyy}0112_t.nc ${drc_out}/era5_msdfswrf_err_avg_${yyyy}_t.nc
 
     # Copy to e3sm
-    # rsync ${DATA}/era5/clm/era5_msdfswrf_err_ttl_${yyyy}_t.nc e3sm.ess.uci.edu:
-    # rsync ${DATA}/era5/clm/era5_msdfswrf_err_avg_${yyyy}_t.nc e3sm.ess.uci.edu:
+    rsync ${drc_out}/era5_msdfswrf_err_ttl_${yyyy}_t.nc e3sm.ess.uci.edu:
+    rsync ${drc_out}/era5_msdfswrf_err_avg_${yyyy}_t.nc e3sm.ess.uci.edu:
 
     # Copy to laptop
     # rsync 'e3sm.ess.uci.edu:era5_msdfswrf_err_*.nc' ${DATA}/era5/clm
