@@ -21,7 +21,7 @@ for yyyy in 1980; do
 	fl_err_stt="${DATA}/era5/clm/era5_msdfswrf_err_stt_${yyyy}${mm}.nc"
 	fl_err_ttl="${DATA}/era5/clm/era5_msdfswrf_err_ttl_${yyyy}${mm}_t.nc"
 	fl_err_avg="${DATA}/era5/clm/era5_msdfswrf_err_avg_${yyyy}${mm}_t.nc"
-	echo "Processing ${fl_in}..."
+	echo "Processing ${fl_err}..."
 	ncbo -O ${fl_msdwswrf} ${fl_msdrswrf} ${fl_err}
 	ncap2 -O -4 -v -s 'msdfswrf_err=float(msdfswrf);msdfswrf_err=msdfswrf_err << 0.0f;err_flg=0*msdfswrf_err;where(msdfswrf < 0.0f) err_flg=1; elsewhere err_flg=0;err_ttl=err_flg.total();nbr_ttl=msdfswrf.size();err_frc=1.0*err_ttl/nbr_ttl' ${fl_err} ${fl_err_stt}
 	ncra -O -y ttl -v err_flg ${fl_err_stt} ${fl_err_ttl}
