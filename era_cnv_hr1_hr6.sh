@@ -2,9 +2,15 @@
 
 # Purpose: Convert ERA5 hourly forcing datasets for E3SM ELM to 6-hourly forcing datasets
 
-# Usage:
+# Interactive Usage:
 # cd ~/era5;era_cnv_hr1_hr6.sh > ~/era5.txt 2>&1 &
 # tail ~/era5.txt
+
+# Perlmutter Batch Queue:
+# ln -s ~/era5/era_cnv_hr1_hr6.sh ~/sh/era_cnv_hr1_hr6.sh
+# echo '#!/bin/bash' > ~/era5.slurm
+# echo "era_cnv_hr1_hr6.sh" >> ~/era5.slurm;chmod a+x ~/era5.slurm
+# sbatch -A e3sm --constraint=cpu --nodes=1 --time=05:00:00 --qos=regular --job-name=era5 --mail-type=fail,end --mail-user=zender@uci.edu --output=${HOME}/era5.txt ~/era5.slurm
 
 # Instructions:
 # Set yr_srt, yr_end to desired start and end years, respectively
@@ -36,7 +42,7 @@ var_drc_avg='prec lwdn swdn'
 #var_drc_avg='lwdn'
 
 # Start and end years
-yr_srt='1981'
+yr_srt='1982'
 yr_end='1990'
 
 # Human-readable summary
