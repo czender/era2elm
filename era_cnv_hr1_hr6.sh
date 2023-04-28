@@ -13,7 +13,7 @@
 
 dbg_lvl=1 # [nbr] Debugging level
 
-if true; then
+if false; then
     # Spectral (Charlie's laptop)
     tm_rsn_hr=6 # Number of hours per output record
     drc_top=${DATA}/era5
