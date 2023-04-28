@@ -2,7 +2,16 @@
 
 # Purpose: Convert ERA5 hourly forcing datasets for E3SM ELM to 6-hourly forcing datasets
 
-if false; then
+# Usage:
+# cd ~/era5;era_cnv_hr1_hr6.sh > ~/era5.txt 2>&1 &
+# tail ~/era5.txt
+
+# Instructions:
+# Set yr_srt, yr_end to desired start and end years, respectively
+# Cull unwanted directories from the default (full) lists in var_drc_nst, var_drc_avg
+# Command-line options are not (yet) supported
+
+if true; then
     # Spectral (Charlie's laptop)
     tm_rsn_hr=6 # Number of hours per output record
     drc_top=${DATA}/era5
@@ -16,13 +25,23 @@ else
     drc_in=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614
 fi # !false
 
-for yr in {1981..1981}; do
-#for yr in {1982..1990}; do
+# Directories containing instantaneous variables
+#var_drc_nst='tbot tdew pbot wind'
+var_drc_nst='tbot'
+
+# Directories containing time-mean/accumulated variables
+#var_drc_avg='prec lwdn swdn'
+var_drc_avg='lwdn'
+
+# Start and end years
+yr_srt='1979'
+yr_end='1979'
+
+for yr in `seq ${yr_srt} ${yr_end}`; do
     yyyy=`printf "%04d" $yr`
 
     # Process instantaneous variables
-    for var_drc in tbot tdew pbot wind; do
-	#for var_drc in wind; do
+    for var_drc in ${var_drc_nst}; do
 	cd ${drc_in}/${var_drc}
 	drc_out=${drc_top}/${drc_tm_rsn}/${var_drc}
 	mkdir -p ${drc_out}
@@ -35,8 +54,7 @@ for yr in {1981..1981}; do
     done # !var_drc
 
     # Process time-mean variables
-    for var_drc in prec lwdn swdn; do
-	#for var_drc in prec; do
+    for var_drc in ${var_drc_avg}; do
 	cd ${drc_in}/${var_drc}
 	drc_out=${drc_top}/${drc_tm_rsn}/${var_drc}
 	mkdir -p ${drc_out}
@@ -47,8 +65,8 @@ for yr in {1981..1981}; do
 	    echo "cmd_ncra = ${cmd_ncra}"
 	    eval ${cmd_ncra}
 	    # Shift timestamps from numeric means (3.5Z, 9.5Z, 15.5Z, 21.5Z) of 6-timestep hourly interval endpoint values (1Z, 2Z, ... 6Z), to 6-hour interval endpoints (6Z, 12Z, 18Z, 24Z)
-	    # Last timestep in each month is average of 5 not 6 timesteps and so has endpoint value = 23.5Z 
-	    # Fudge this from 23.5Z to 24Z to keep six hour intervals
+	    # Last timestep of each month is average of 5 not 6 timesteps and so has endpoint value = 23.5Z 
+	    # Fudge this from 23.5Z to 24Z to keep regular six hour intervals for entire month
 	    cmd_ncap2="ncap2 -O -C -s 'time+=2.5/24;where(time == time.max()) time=time+0.5/24' ${drc_out}/${fl_in} ${drc_out}/${fl_in}"
 	    echo "cmd_ncap2 = ${cmd_ncap2}"
 	    eval ${cmd_ncap2}
