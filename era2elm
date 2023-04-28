@@ -76,7 +76,12 @@ spt_pid=$$ # [nbr] Script PID (process ID)
 # Production usage:
 # /bin/ls ~/data/era5/data_raw/1979/*.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=${DATA}/era5/data_out > ~/era5.txt 2>&1 & # Spectral 70m07s
 # /bin/ls /data1/amschnei/era5/data_raw/1990/*.nc | era2elm --dbg=1 --job_nbr=3 --drc_out=/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614 > ~/era5.txt 2>&1 & # e3sm 177m31s
-# /bin/ls /global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_raw/1990/*.nc | era2elm --npo --dbg=1 --job_nbr=3 --drc_out=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_out > ~/era5.txt 2>&1 & # NERSC Perlmutter 79m58s
+# screen # Start screen
+# /bin/ls /global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_raw/1984/*.nc | era2elm --npo --dbg=1 --job_nbr=3 --drc_out=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614 > ~/era5.txt 2>&1 & # NERSC Perlmutter 79m58s
+# Ctl-A D # Detach screen
+# tail ~/era5.txt # Monitor progress
+# screen -ls # List screens
+# screen -r <ID> # Re-attach screen
 
 # 20221108: Passing environment variable NCO_PATH_OVERRIDE (NPO) to ncremap in batch queues fails on Cori
 # Approaches that fail include: 1. export NPO='Yes';ncremap ... 2. export NPO='Yes' ncremap ...
@@ -379,6 +384,11 @@ function var2cll_mth {
     # msdfswrf = Mean surface diffuse shortwave radiation flux
     # w10 = 10m wind speed
 
+    # 20230208: Slack discussion on meaning of instantaneous and accumulated variables:
+    # https://confluence.ecmwf.int/display/CKB/ERA5%3A+data+documentation#heading-Instantaneousparameters
+    # Adam: I believe this link refers to documentation relevant to the hourly reanalysis we’re using. My understanding is that instantaneous variables are valid at the time of their time stamps, while accumulated variables represent the (previous) hour leading up to their time stamps.
+    # Adam: In CIME, there’re different options for time-interpolating the forcing variables. I configured ELMERA5 to linearly interpolate the instantaneous variables. For accumulated variables, CIME will use the “upper” value with a small time shift applied so that at, say, t_0, ELM will use ERA5 variables from t_1. In other words. On Jan 1 at 00:00 UTC, CIME will use the 00:00 UTC data for ERA5 instantaneous values but 01:00 UTC data for ERA5 accumulated values. At 00:30, CIME will interpolate ERA5 instantaneous but will still use 01:00 UTC data for ERA5 accumulated values. Downwelling Shortwave is weighted a little differently by CIME but follows the same convention in ERA5.
+
     local cll_mth_crr
     if [ ${1} = 'd2m' ] || [ ${1} = 'sp' ] || [ ${1} = 't2m' ] || [ ${1} = 'u10' ] || [ ${1} = 'v10' ] || [ ${1} = 'w10' ]; then
         cll_mth_crr='time: point'
@@ -574,7 +584,7 @@ if [ -n "${drc_out}" ] && [ ! -d "${drc_out}" ]; then
     chr_fst=${drc_out:0:1}
     if [ "${chr_fst}" = '-' ]; then
 	echo "${spt_nm}: ERROR Attempting to mkdir user-specified output directory \"${drc_out}\" will fail because directory name begins with '-' which is an option indicator"
-	echo "${spt_nm}: HINT Specify output directory name that does not begin with '-'"
+	echo "${spt_nm}: HINT Specify an output directory name that does not begin with '-'"
 	exit 1
     fi # !chr_fst
     cmd_mkd="mkdir -p ${drc_out}"
@@ -1004,6 +1014,8 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	    # Local boundary layer lapse rates could be derived from ERA5 temperature/pressure vertical profiles
 	    # This would presumably be much more accurate than globally uniform lapse rates, especially in cold, dense polar regions
 	    # 20230412 Update: Chloe showed that setting forcing height in ELM streams does NOT alter TSA or TBOT
+	    # Gautam expects that because the forcing height only changes the z2 values of MOST:
+	    # https://escomp.github.io/ctsm-docs/versions/release-clm5.0/html/tech_note/Fluxes/CLM50_Tech_Note_Fluxes.html#monin-obukhov-similarity-theory
 	    
 	    # Construct filenames needed for derived fields
 	    fl_t2m_mth[${clm_idx}]="${drc_out}/${drc_nm_tbot}/${out_nm}.t2m.${yyyy}-${mm}.nc"

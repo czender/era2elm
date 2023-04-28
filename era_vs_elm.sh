@@ -40,6 +40,7 @@ function var2elm {
     if [ ${1} = 'mcpr' ] || [ ${1} = 'mlspr' ]; then
         var_nm_elm='prec'
     elif [ ${1} = 't2m' ]; then
+	# 20230412 Chloe showed that t2m should be compared to TBOT, not TSA, since t2m is assigned to TBOT in input in namelist_definition_datm.xml
         var_nm_elm='TSA'
     elif [ ${1} = 'd2m' ]; then
         var_nm_elm='tdew'
