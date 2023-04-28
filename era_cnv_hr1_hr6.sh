@@ -47,6 +47,7 @@ if [ ${dbg_lvl} -ge 0 ]; then
 fi # !dbg
 
 for yr in `seq ${yr_srt} ${yr_end}`; do
+    [[ ${dbg_lvl} -ge 0 ]] && date_yr=$(date +"%s")
     yyyy=`printf "%04d" $yr`
 
     # Process instantaneous variables
@@ -81,6 +82,13 @@ for yr in `seq ${yr_srt} ${yr_end}`; do
 	    eval ${cmd_ncap2}
 	done # !fl_in
     done # !var_drc
+
+    if [ ${dbg_lvl} -ge 1 ]; then
+	date_crr=$(date +"%s")
+	date_dff=$((date_crr-date_yr))
+	echo "Elapsed time to process year ${yyyy} = $((date_dff/60))m$((date_dff % 60))s"
+    fi # !dbg
+
 done # !yr
 
 date_end=$(date +"%s")
