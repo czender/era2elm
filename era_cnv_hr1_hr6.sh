@@ -11,6 +11,8 @@
 # Cull unwanted directories from the default (full) lists in var_drc_nst, var_drc_avg
 # Command-line options are not (yet) supported
 
+dbg_lvl=1 # [nbr] Debugging level
+
 if true; then
     # Spectral (Charlie's laptop)
     tm_rsn_hr=6 # Number of hours per output record
@@ -36,6 +38,13 @@ var_drc_avg='lwdn'
 # Start and end years
 yr_srt='1979'
 yr_end='1979'
+
+# Human-readable summary
+date_srt=$(date +"%s")
+if [ ${dbg_lvl} -ge 0 ]; then
+    printf "era_cnv_hr1_hr6, an ERA5 hourly forcing dataset conversion tool\n"
+    printf "Started creating ERA5 ${tm_rsn_hr}-hourly datasets from hourly datasets at `date`\n"
+fi # !dbg
 
 for yr in `seq ${yr_srt} ${yr_end}`; do
     yyyy=`printf "%04d" $yr`
@@ -73,3 +82,12 @@ for yr in `seq ${yr_srt} ${yr_end}`; do
 	done # !fl_in
     done # !var_drc
 done # !yr
+
+date_end=$(date +"%s")
+if [ ${dbg_lvl} -ge 0 ]; then
+    printf "Completed ERA5 ${tm_rsn_hr}-hourly dataset creation at `date`\n"
+    date_dff=$((date_end-date_srt))
+    echo "Elapsed time $((date_dff/60))m$((date_dff % 60))s"
+fi # !dbg
+
+exit 0
