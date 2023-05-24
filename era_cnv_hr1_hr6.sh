@@ -10,7 +10,7 @@
 # ln -s ~/era5/era_cnv_hr1_hr6.sh ~/sh/era_cnv_hr1_hr6.sh
 # echo '#!/bin/bash' > ~/era5.slurm
 # echo "era_cnv_hr1_hr6.sh" >> ~/era5.slurm;chmod a+x ~/era5.slurm
-# sbatch -A e3sm --constraint=cpu --nodes=1 --time=05:00:00 --qos=regular --job-name=era5 --mail-type=fail,end --mail-user=zender@uci.edu --output=${HOME}/era5.txt ~/era5.slurm
+# sbatch -A e3sm --constraint=cpu --nodes=1 --time=06:00:00 --qos=regular --job-name=era5 --mail-type=fail,end --mail-user=zender@uci.edu --output=${HOME}/era5.txt ~/era5.slurm # Perlmutter: ~20 minutes/year
 
 # Instructions:
 # Set yr_srt, yr_end to desired start and end years, respectively
@@ -42,8 +42,8 @@ var_drc_avg='prec lwdn swdn'
 #var_drc_avg='lwdn'
 
 # Start and end years
-yr_srt='1991'
-yr_end='2000'
+yr_srt='2001'
+yr_end='2022'
 
 # Human-readable summary
 date_srt=$(date +"%s")
