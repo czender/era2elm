@@ -42,7 +42,7 @@ var_drc_avg='prec lwdn swdn'
 #var_drc_avg='lwdn'
 
 # Start and end years
-yr_srt='2001'
+yr_srt='1979'
 yr_end='2022'
 
 # Human-readable summary
@@ -61,7 +61,7 @@ for yr in `seq ${yr_srt} ${yr_end}`; do
 	cd ${drc_in}/${var_drc}
 	drc_out=${drc_top}/${drc_tm_rsn}/${var_drc}
 	mkdir -p ${drc_out}
-	for fl_in in `ls *${yyyy}*.nc`; do
+	for fl_in in `ls *.${yyyy}-??.nc`; do
             # Select every sixth instantaneous timestep
 	    cmd_ncrcat="ncrcat -O -d time,0,,${tm_rsn_hr} ${fl_in} ${drc_out}/${fl_in}"
 	    echo "cmd_ncrcat = ${cmd_ncrcat}"
@@ -74,7 +74,7 @@ for yr in `seq ${yr_srt} ${yr_end}`; do
 	cd ${drc_in}/${var_drc}
 	drc_out=${drc_top}/${drc_tm_rsn}/${var_drc}
 	mkdir -p ${drc_out}
-	for fl_in in `ls *${yyyy}*.nc`; do
+	for fl_in in `ls *.${yyyy}-??.nc`; do
             # Average every six timesteps into a single group. Start with timestep 1 (0Z) not 0 (23Z the night before).
 	    # Last timestep of month will contain mean of 5 timesteps from 18Z-23Z
 	    cmd_ncra="ncra -O --mro -d time,1,,${tm_rsn_hr},${tm_rsn_hr} ${fl_in} ${drc_out}/${fl_in}"
