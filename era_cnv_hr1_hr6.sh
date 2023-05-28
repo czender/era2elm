@@ -42,8 +42,8 @@ var_drc_avg='prec lwdn swdn'
 #var_drc_avg='lwdn'
 
 # Start and end years
-yr_srt='1979'
-yr_end='2022'
+yr_srt='1990'
+yr_end='2000'
 
 # Human-readable summary
 date_srt=$(date +"%s")
