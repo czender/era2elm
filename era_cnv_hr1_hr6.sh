@@ -42,7 +42,7 @@ var_drc_avg='prec lwdn swdn'
 #var_drc_avg='lwdn'
 
 # Start and end years
-yr_srt='2001'
+yr_srt='2022'
 yr_end='2022'
 
 # Human-readable summary
