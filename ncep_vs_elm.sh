@@ -17,7 +17,7 @@ function var2drc {
     local drc_nm_crr
     if [ ${1} = 'PRECTmms' ]; then
         drc_nm_crr='Precip6Hrly'
-    elif [ ${1} = 'TBOT' ] || [ ${1} = 'QBOT' ] || [ ${1} = 'PSRF' ] || [ ${1} = 'WIND' ] || [ ${1} = 'FLDS' ] || ; then
+    elif [ ${1} = 'TBOT' ] || [ ${1} = 'QBOT' ] || [ ${1} = 'PSRF' ] || [ ${1} = 'WIND' ] || [ ${1} = 'FLDS' ]; then
         drc_nm_crr='TPHWL6Hrly'
     elif [ ${1} = 'FSDS']; then
         drc_nm_crr='Solar6Hrly'
@@ -57,7 +57,7 @@ function var2sng {
     local var_sng
     if [ ${1} = 'PRECTmms' ]; then
         var_sng='Prec'
-    elif [ ${1} = 'TBOT' ] || [ ${1} = 'QBOT' ] || [ ${1} = 'PSRF' ] || [ ${1} = 'WIND' ] || [ ${1} = 'FLDS' ] || ; then
+    elif [ ${1} = 'TBOT' ] || [ ${1} = 'QBOT' ] || [ ${1} = 'PSRF' ] || [ ${1} = 'WIND' ] || [ ${1} = 'FLDS' ]; then
         var_sng='TPQWL'
     elif [ ${1} = 'FSDS' ]; then
         var_sng='Solr'
