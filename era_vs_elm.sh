@@ -13,6 +13,7 @@ yyyy=1980 # [yr] Analysis year
 fl_h0_elm=${caseid_elm}.elm.h0.${yyyy}-02-01-00000.nc
 
 function var2drc {
+    # Purpose: Return subdirectory where CRUNCEP DATM stores files containining given CRUNCEP variable name
     local drc_nm_crr
     if [ ${1} = 'mcpr' ] || [ ${1} = 'mlspr' ]; then
         drc_nm_crr='prec'
@@ -36,6 +37,7 @@ function var2drc {
 } # !var2drc
 
 function var2elm {
+    # Purpose: Return ELM variable name to compare with given ERA5 variable name
     local var_nm_elm
     if [ ${1} = 'mcpr' ] || [ ${1} = 'mlspr' ]; then
         var_nm_elm='prec'

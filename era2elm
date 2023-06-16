@@ -282,12 +282,6 @@ drc_out='' # [sng] Output file directory
 drc_out_xmp="${DATA}/era5/data_out" # [sng] Output file directory for examples
 fl_fmt='' # [enm] Output file format
 fml_nm='' # [sng] Family name (i.e., nickname, e.g., 'amip', 'control', 'experiment')
-hgt_tdw_in=2.0 # [m] Input height for d2m/tdew
-hgt_tpt_in=2.0 # [m] Input height for t2m/tbot
-hgt_wnd_in=10.0 # [m] Input height for w10/wind
-hgt_tdw_out=2.0 # [m] Output height for d2m/tdew
-hgt_tpt_out=2.0 # [m] Output height for t2m/tbot
-hgt_wnd_out=10.0 # [m] Output height for w10/wind
 inp_aut='No' # [sng] Input file list automatically generated
 inp_glb='No' # [sng] Input file list from globbing directory 
 inp_psn='No' # [sng] Input file list from positional arguments
@@ -1045,8 +1039,9 @@ for ((fl_idx=0;fl_idx<fl_nbr;fl_idx++)); do
 	    fl_v10_mth[${clm_idx}]="${drc_out}/${drc_nm_wind}/${out_nm}.v10.${yyyy}-${mm}.nc"
 	    fl_w10_mth[${clm_idx}]="${drc_out}/${drc_nm_wind}/${out_nm}.w10.${yyyy}-${mm}.nc"
 
-	    cmd_wn1[${clm_idx}]="ncks -A --no_tmp_fl -C -v u10 ${fl_u10_mth[${clm_idx}]} ${fl_v10_mth[${clm_idx}]}"
-	    cmd_wn2[${clm_idx}]="ncap2 -O --no_tmp_fl -s 'w10=sqrt(u10^2+v10^2);w10@long_name=\"10 metre windspeed\"' ${fl_v10_mth[${clm_idx}]} ${fl_w10_mth[${clm_idx}]}"
+	    cmd_wn0[${clm_idx}]="/bin/cp ${fl_v10_mth[${clm_idx}]} ${fl_w10_mth[${clm_idx}]}"
+	    cmd_wn1[${clm_idx}]="ncks -A --no_tmp_fl -C -v u10 ${fl_u10_mth[${clm_idx}]} ${fl_w10_mth[${clm_idx}]}"
+	    cmd_wn2[${clm_idx}]="ncap2 -O --no_tmp_fl -s 'w10=sqrt(u10^2+v10^2);w10@long_name=\"10 metre windspeed\"' ${fl_w10_mth[${clm_idx}]} ${fl_w10_mth[${clm_idx}]}"
 	    cmd_wn3[${clm_idx}]="ncks -O -x -v u10,v10 ${fl_w10_mth[${clm_idx}]} ${fl_w10_mth[${clm_idx}]}"
 #	    cmd_wn4[${clm_idx}]="/bin/rm -f ${fl_u10_mth[${clm_idx}]} ${fl_v10_mth[${clm_idx}]}"
 	fi # !u10
