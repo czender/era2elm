@@ -17,7 +17,7 @@ function var2drc {
     local drc_nm_crr
     if [ ${1} = 'PRECTmms' ]; then
         drc_nm_crr='Precip6Hrly'
-    elif [ ${1} = 'TBOT' ] || [ ${1} = 'QBOT' ] || [ ${1} = 'PSRF' ] || [ ${1} = 'WIND' ] || [ ${1} = 'FLDS' ] || ; then
+    elif [ ${1} = 'TBOT' ] || [ ${1} = 'QBOT' ] || [ ${1} = 'PSRF' ] || [ ${1} = 'WIND' ] || [ ${1} = 'FLDS' ]; then
         drc_nm_crr='TPHWL6Hrly'
     elif [ ${1} = 'FSDS']; then
         drc_nm_crr='Solar6Hrly'
@@ -57,7 +57,7 @@ function var2sng {
     local var_sng
     if [ ${1} = 'PRECTmms' ]; then
         var_sng='Prec'
-    elif [ ${1} = 'TBOT' ] || [ ${1} = 'QBOT' ] || [ ${1} = 'PSRF' ] || [ ${1} = 'WIND' ] || [ ${1} = 'FLDS' ] || ; then
+    elif [ ${1} = 'TBOT' ] || [ ${1} = 'QBOT' ] || [ ${1} = 'PSRF' ] || [ ${1} = 'WIND' ] || [ ${1} = 'FLDS' ]; then
         var_sng='TPQWL'
     elif [ ${1} = 'FSDS' ]; then
         var_sng='Solr'
@@ -77,10 +77,12 @@ for var_ncep in TBOT; do
 #    if false; then
     for fl in `ls clmforc.cruncep.V7.c2016.0.5d.${var_sng}.${yyyy}-??.nc`; do
     	echo "CRUNCEP fl=${fl}"
-	ncra -O ${fl} ${DATA}/era5/clm/${fl}
-	ncremap -v ${var_ncep} --map=${DATA}/maps/map_cruncep_to_r05_nco.20230701.nc ${DATA}/era5/clm/${fl} ${DATA}/era5/rgr/${fl/0.25d/r05}
-	ncrename -v ${var_ncep},${var_elm} ${DATA}/era5/rgr/${fl/0.5d/r05}
-	ncks --append -C -v landfrac ${DATA}/grids/elm_landfrac_r05.nc ${DATA}/era5/rgr/${fl/0.5d/r05}
+	fl_tmp=${fl/${var_sng}/${var_ncep}}
+	fl_out=${fl_tmp/0.5d/r05}
+	ncra -O ${fl} ${DATA}/era5/clm/${fl_tmp}
+	ncremap -v ${var_ncep} --map=${DATA}/maps/map_cruncep_to_r05_nco.20230701.nc ${DATA}/era5/clm/${fl_tmp} ${DATA}/era5/rgr/${fl_out}
+	ncrename -v ${var_ncep},${var_elm} ${DATA}/era5/rgr/${fl_out}
+	ncks --append -C -v landfrac ${DATA}/grids/elm_landfrac_r05.nc ${DATA}/era5/rgr/${fl_out}
     done # !fl
 #    fi # !false
     cd ${DATA}/era5/rgr
