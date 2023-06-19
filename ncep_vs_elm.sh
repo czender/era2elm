@@ -7,10 +7,11 @@ drc_elm=/pscratch/sd/c/cwhicker/e3sm_scratch/pm-cpu/20230509.IGELM_MLI.ne30pg2_r
 caseid_elm=20230509.IGELM_MLI.ne30pg2_r05_oECv3_gis1to10.pm-cpu.cruncep_datm_1yrtst # [sng] ELM caseid
 elm_ncep_vars=RAIN,SNOW,FSDSNI,FSDSVI,FSDSND,FSDSVD,TSA,FLDS,PBOT # [sng] ELM variables directly forced by NCEP
 elm_xtra_vars=FSDS,TBOT,landfrac,landmask # [sng] Extra variables to carry
-yyyy=1980 # [yr] Analysis year
+yyyy=1980 # [yr] Analysis year for NCEP
+yyyy_elm=0001 # [yr] Analysis year for ELM simulation
 
 # Derived variables
-fl_h0_elm=${caseid_elm}.elm.h0.${yyyy}-02-01-00000.nc
+fl_h0_elm=${caseid_elm}.elm.h0.${yyyy_elm}-02-01-00000.nc
 
 function var2drc {
     # Purpose: Return subdirectory where CRUNCEP DATM stores files containining given CRUNCEP variable name
@@ -77,17 +78,21 @@ for var_ncep in TBOT; do
 #    if false; then
     for fl in `ls clmforc.cruncep.V7.c2016.0.5d.${var_sng}.${yyyy}-??.nc`; do
     	echo "CRUNCEP fl=${fl}"
-	fl_tmp=${fl/${var_sng}/${var_ncep}}
-	fl_out=${fl_tmp/0.5d/r05}
-	ncra -O ${fl} ${DATA}/era5/clm/${fl_tmp}
-	ncremap -v ${var_ncep} --map=${DATA}/maps/map_cruncep_to_r05_nco.20230701.nc ${DATA}/era5/clm/${fl_tmp} ${DATA}/era5/rgr/${fl_out}
-	ncrename -v ${var_ncep},${var_elm} ${DATA}/era5/rgr/${fl_out}
+	fl_var=${fl/${var_sng}/${var_ncep}}
+	fl_out=${fl_var/0.5d/r05}
+	# NB: CRUNCEP forcing datasets have time as fixed, not record, coordinate
+	ncks -O -v ${var_ncep} --mk_rec_dmn time ${fl} ${DATA}/era5/clm/${fl_var}
+	ncra -O ${DATA}/era5/clm/${fl_var} ${DATA}/era5/clm/${fl_var}
+	ncremap -v ${var_ncep} --map=${DATA}/maps/map_cruncep_to_r05_nco.20230701.nc ${DATA}/era5/clm/${fl_var} ${DATA}/era5/rgr/${fl_out}
+	if [ ${var_ncep} != ${var_elm} ]; then
+	    ncrename -v ${var_ncep},${var_elm} ${DATA}/era5/rgr/${fl_out}
+	fi # !var_ncep
 	ncks --append -C -v landfrac ${DATA}/grids/elm_landfrac_r05.nc ${DATA}/era5/rgr/${fl_out}
     done # !fl
 #    fi # !false
     cd ${DATA}/era5/rgr
     ncrcat -O clmforc.cruncep.V7.c2016.r05.${var_ncep}.${yyyy}-??.nc ${DATA}/era5/rgr/cruncep_r05_${yyyy}_0112_${var_elm}.nc
-    ncbo -O ${drc_elm}/${fl_h0_elm} ${DATA}/era5/rgr/cruncep_r05_${yyyy}_0112_${var_elm}.nc ~/elm-cruncep_r05_${yyyy}_0112_${var_elm}.nc
+    ncbo -O -v ${var_elm} ${drc_elm}/${fl_h0_elm} ${DATA}/era5/rgr/cruncep_r05_${yyyy}_0112_${var_elm}.nc ~/elm-cruncep_r05_${yyyy}_0112_${var_elm}.nc
     ncra -O ~/elm-cruncep_r05_${yyyy}_0112_${var_elm}.nc ~/elm-cruncep_r05_${yyyy}_${var_elm}.nc
     scp ~/elm-cruncep_r05_${yyyy}*_${var_elm}.nc e3sm.ess.uci.edu:
     # scp "e3sm.ess.uci.edu:elm-cruncep_r05_${yyyy}*_${var_elm}.nc" ~
