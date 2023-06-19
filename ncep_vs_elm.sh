@@ -5,8 +5,8 @@
 drc_ncep=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.cruncep_qianFill.0.5d.v7.c160715 # [sng] Root of NCEP reanalysis
 drc_elm=/pscratch/sd/c/cwhicker/e3sm_scratch/pm-cpu/20230509.IGELM_MLI.ne30pg2_r05_oECv3_gis1to10.pm-cpu.cruncep_datm_1yrtst/run # [sng] Root of ELM output
 caseid_elm=20230509.IGELM_MLI.ne30pg2_r05_oECv3_gis1to10.pm-cpu.cruncep_datm_1yrtst # [sng] ELM caseid
-elm_ncep_vars=RAIN,SNOW,FSDSNI,FSDSVI,FSDSND,FSDSVD,TSA,FLDS,PBOT # [sng] ELM variables directly forced by NCEP
-elm_xtra_vars=FSDS,TBOT,landfrac,landmask # [sng] Extra variables to carry
+elm_ncep_vars=FLDS,FSDS,PBOT,QBOT,TBOT,WIND # [sng] ELM variables directly forced by NCEP
+elm_xtra_vars=RAIN,SNOW,FSDSNI,FSDSVI,FSDSND,FSDSVD,TSA,landfrac,landmask # [sng] Extra variables to carry
 yyyy=1980 # [yr] Analysis year for NCEP
 yyyy_elm=0001 # [yr] Analysis year for ELM simulation
 
@@ -20,7 +20,7 @@ function var2drc {
         drc_nm_crr='Precip6Hrly'
     elif [ ${1} = 'TBOT' ] || [ ${1} = 'QBOT' ] || [ ${1} = 'PSRF' ] || [ ${1} = 'WIND' ] || [ ${1} = 'FLDS' ]; then
         drc_nm_crr='TPHWL6Hrly'
-    elif [ ${1} = 'FSDS']; then
+    elif [ ${1} = 'FSDS' ]; then
         drc_nm_crr='Solar6Hrly'
     else
 	echo "${spt_nm}: ERROR Unknown CRUNCEP variable name = \"${1}\" in function var2drc()"
@@ -70,7 +70,7 @@ function var2sng {
 } # !var2sng
 
 #for var_ncep in TBOT PSRF QBOT FLDS FSDS WIND; do
-for var_ncep in TBOT; do
+for var_ncep in FSDS; do
     sbd_ncep=`var2drc ${var_ncep}`
     var_elm=`var2elm ${var_ncep}`
     var_sng=`var2sng ${var_ncep}`
