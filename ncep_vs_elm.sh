@@ -94,6 +94,6 @@ for var_ncep in TBOT; do
     ncrcat -O clmforc.cruncep.V7.c2016.r05.${var_ncep}.${yyyy}-??.nc ${DATA}/era5/rgr/cruncep_r05_${yyyy}_0112_${var_elm}.nc
     ncbo -O -v ${var_elm} ${drc_elm}/${fl_h0_elm} ${DATA}/era5/rgr/cruncep_r05_${yyyy}_0112_${var_elm}.nc ~/elm-cruncep_r05_${yyyy}_0112_${var_elm}.nc
     ncra -O ~/elm-cruncep_r05_${yyyy}_0112_${var_elm}.nc ~/elm-cruncep_r05_${yyyy}_${var_elm}.nc
-    scp ~/elm-cruncep_r05_${yyyy}*_${var_elm}.nc e3sm.ess.uci.edu:
+    scp ~/elm-cruncep_r05_${yyyy}*_${var_elm}.nc imua.ess.uci.edu:
     # scp "e3sm.ess.uci.edu:elm-cruncep_r05_${yyyy}*_${var_elm}.nc" ~
 done # !var_ncep
