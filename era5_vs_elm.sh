@@ -2,7 +2,7 @@
 
 # Purpose: Evaluate ERA5 forcing against E3SM ELM output fields
 
-drc_era=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614/data_out # [sng] Root of ERA5 reanalysis
+drc_era=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614 # [sng] Root of ERA5 reanalysis
 drc_elm=/pscratch/sd/c/cwhicker/e3sm_scratch/pm-cpu/20230224.IGELM_MLI.ne30pg2_r05_oECv3_gis1to10.pm-cpu.cwhicker_snicar_adv4-amschne_era5_merge_ig_f10e_era5tests/run # [sng] Root of ELM output
 caseid_elm=20230224.IGELM_MLI.ne30pg2_r05_oECv3_gis1to10.pm-cpu.cwhicker_snicar_adv4-amschne_era5_merge_ig_f10e_era5tests # [sng] ELM caseid
 elm_era5_vars=RAIN,SNOW,FSDSNI,FSDSVI,FSDSND,FSDSVD,TSA,FLDS,PBOT # [sng] ELM variables directly forced by ERA5
@@ -39,20 +39,35 @@ function var2drc {
 function var2elm {
     # Purpose: Return ELM variable name to compare with given ERA5 variable name
     local var_nm_elm
-    if [ ${1} = 'mcpr' ] || [ ${1} = 'mlspr' ]; then
-        var_nm_elm='prec'
+    if [ ${1} = 'mcpr' ]; then
+# No good comparator in default ELM
+        var_nm_eam='PRECC'
+        var_nm_elm='RAIN+SNOW'
+    elif [ ${1} = 'mlspr' ]; then
+# No good comparator in default ELM
+        var_nm_eam='PRECL'
+        var_nm_elm='RAIN+SNOW'
     elif [ ${1} = 't2m' ]; then
 	# 20230412 Chloe showed that t2m should be compared to TBOT, not TSA, since t2m is assigned to TBOT in input in namelist_definition_datm.xml
-        var_nm_elm='TSA'
+        var_nm_elm='TBOT'
     elif [ ${1} = 'd2m' ]; then
+# No good comparator in default ELM
         var_nm_elm='tdew'
     elif [ ${1} = 'sp' ]; then
         var_nm_elm='PBOT'
     elif [ ${1} = 'msdwlwrf' ]; then
         var_nm_elm='FLDS'
-    elif [ ${1} = 'msdfswrf' ] || [ ${1} = 'msdrswrf' ] || [ ${1} = 'msdwswrf' ]; then
-        var_nm_elm='swdn'
+    elif [ ${1} = 'msdfswrf' ]; then
+# No good comparator in default ELM
+        var_nm_elm='FSDSVD+FSDSND'
+    elif [ ${1} = 'msdrswrf' ]; then
+# No good comparator in default ELM
+        var_nm_elm='FSDSVI+FSDSNI'
+    elif [ ${1} = 'msdwswrf' ]; then
+        var_nm_elm='FSDS'
     elif [ ${1} = 'u10' ] || [ ${1} = 'v10' ] || [ ${1} = 'w10' ]; then
+	# 20230620 Default ELM contains both U10 and WIND. I think U10 is windspeed at 10-meters (for dust), not zonal 10-m windspeed
+        # var_nm_elm='U10'
         var_nm_elm='WIND'
     else
 	echo "${spt_nm}: ERROR Unknown ERA5 variable name = \"${1}\" in function var2elm()"
@@ -61,7 +76,8 @@ function var2elm {
     echo ${var_nm_elm}
 } # !var2elm
 
-for var_era in t2m sp w10 msdwlwrf; do
+#for var_era in t2m sp w10 msdwlwrf msdwswrf; do
+for var_era in t2m msdwswrf; do
 #for var_era in t2m; do
     sbd_era=`var2drc ${var_era}`
     var_elm=`var2elm ${var_era}`
@@ -77,8 +93,8 @@ for var_era in t2m sp w10 msdwlwrf; do
 #    fi # !false
     cd ${DATA}/era5/rgr
     ncrcat -O elmforc.ERA5.c2018.r05.${var_era}.${yyyy}-??.nc ${DATA}/era5/rgr/era5_r05_${yyyy}_0112_${var_elm}.nc
-    ncbo -O ${drc_elm}/${fl_h0_elm} ${DATA}/era5/rgr/era5_r05_${yyyy}_0112_${var_elm}.nc ~/elm-era_r05_${yyyy}_0112_${var_elm}.nc
-    ncra -O ~/elm-era_r05_${yyyy}_0112_${var_elm}.nc ~/elm-era_r05_${yyyy}_${var_elm}.nc
-    scp ~/elm-era_r05_${yyyy}*_${var_elm}.nc imua.ess.uci.edu:
-    # scp "e3sm.ess.uci.edu:elm-era_r05_${yyyy}*_${var_elm}.nc" ~
+    ncbo -O ${drc_elm}/${fl_h0_elm} ${DATA}/era5/rgr/era5_r05_${yyyy}_0112_${var_elm}.nc ~/elm-era5_r05_${yyyy}_0112_${var_elm}.nc
+    ncra -O ~/elm-era5_r05_${yyyy}_0112_${var_elm}.nc ~/elm-era5_r05_${yyyy}_${var_elm}.nc
+    scp ~/elm-era5_r05_${yyyy}*_${var_elm}.nc imua.ess.uci.edu:
+    # scp "e3sm.ess.uci.edu:elm-era5_r05_${yyyy}*_${var_elm}.nc" ~
 done # !var_era

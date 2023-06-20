@@ -33,7 +33,7 @@ function var2elm {
     # Purpose: Return ELM variable name to compare with given CRUNCEP variable name
     local var_nm_elm
     if [ ${1} = 'PRECTmms' ]; then
-        var_nm_elm='SNOW' # ELM outputs RAIN and SNOW separately, has no total precip field
+        var_nm_elm='RAIN+SNOW' # Default ELM outputs RAIN and SNOW separately, has no total precip field
     elif [ ${1} = 'TBOT' ]; then
         var_nm_elm='TBOT'
     elif [ ${1} = 'QBOT' ]; then
