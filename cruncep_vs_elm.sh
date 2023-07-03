@@ -2,6 +2,10 @@
 
 # Purpose: Evaluate CRUNCEP forcing against E3SM ELM output fields
 
+# Usage:
+# ~/era5/cruncep_vs_elm.sh 
+# ~/era5/cruncep_vs_elm.sh > ~/foo.txt 2>&1 &
+
 drc_ncep=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.cruncep_qianFill.0.5d.v7.c160715 # [sng] Root of NCEP reanalysis
 drc_elm=/pscratch/sd/c/cwhicker/e3sm_scratch/pm-cpu/20230509.IGELM_MLI.ne30pg2_r05_oECv3_gis1to10.pm-cpu.cruncep_datm_1yrtst/run # [sng] Root of ELM output
 caseid_elm=20230509.IGELM_MLI.ne30pg2_r05_oECv3_gis1to10.pm-cpu.cruncep_datm_1yrtst # [sng] ELM caseid
@@ -92,7 +96,7 @@ for var_ncep in FSDS; do
 #    fi # !false
     cd ${DATA}/era5/rgr
     ncrcat -O clmforc.cruncep.V7.c2016.r05.${var_ncep}.${yyyy}-??.nc ${DATA}/era5/rgr/cruncep_r05_${yyyy}_0112_${var_elm}.nc
-    ncbo -O -v ${var_elm} ${drc_elm}/${fl_h0_elm} ${DATA}/era5/rgr/cruncep_r05_${yyyy}_0112_${var_elm}.nc ~/elm-cruncep_r05_${yyyy}_0112_${var_elm}.nc
+    ncbo -O ${drc_elm}/${fl_h0_elm} ${DATA}/era5/rgr/cruncep_r05_${yyyy}_0112_${var_elm}.nc ~/elm-cruncep_r05_${yyyy}_0112_${var_elm}.nc
     ncra -O ~/elm-cruncep_r05_${yyyy}_0112_${var_elm}.nc ~/elm-cruncep_r05_${yyyy}_${var_elm}.nc
     scp ~/elm-cruncep_r05_${yyyy}*_${var_elm}.nc imua.ess.uci.edu:
     # scp "e3sm.ess.uci.edu:elm-cruncep_r05_${yyyy}*_${var_elm}.nc" ~

@@ -2,6 +2,10 @@
 
 # Purpose: Evaluate ERA5 forcing against E3SM ELM output fields
 
+# Usage:
+# ~/era5/era5_vs_elm.sh 
+# ~/era5/era5_vs_elm.sh > ~/foo.txt 2>&1 &
+
 drc_era=/global/cfs/cdirs/e3sm/inputdata/atm/datm7/atm_forcing.datm7.ERA.0.25d.v5.c180614 # [sng] Root of ERA5 reanalysis
 drc_elm=/pscratch/sd/c/cwhicker/e3sm_scratch/pm-cpu/20230224.IGELM_MLI.ne30pg2_r05_oECv3_gis1to10.pm-cpu.cwhicker_snicar_adv4-amschne_era5_merge_ig_f10e_era5tests/run # [sng] Root of ELM output
 caseid_elm=20230224.IGELM_MLI.ne30pg2_r05_oECv3_gis1to10.pm-cpu.cwhicker_snicar_adv4-amschne_era5_merge_ig_f10e_era5tests # [sng] ELM caseid
@@ -76,8 +80,8 @@ function var2elm {
     echo ${var_nm_elm}
 } # !var2elm
 
-#for var_era in t2m sp w10 msdwlwrf msdwswrf; do
-for var_era in t2m msdwswrf; do
+for var_era in t2m sp w10 msdwlwrf msdwswrf; do
+#for var_era in t2m msdwswrf; do
 #for var_era in t2m; do
     sbd_era=`var2drc ${var_era}`
     var_elm=`var2elm ${var_era}`
