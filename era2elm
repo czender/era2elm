@@ -86,8 +86,8 @@ spt_pid=$$ # [nbr] Script PID (process ID)
 # 20221108: Passing environment variable NCO_PATH_OVERRIDE (NPO) to ncremap in batch queues fails on Cori
 # Approaches that fail include: 1. export NPO='Yes';ncremap ... 2. export NPO='Yes' ncremap ...
 # Direct approach that works is to pass NPO flag to ncremap via command-line switch
-# Require that path-override switch to be first command-line option (i.e., $1) found with shell syntax
-# ncremap/ncclimo implement NPO (though not getopt) logic prior to invoking NCO
+# Require path-override switch to be first command-line option (i.e., $1) found with shell syntax
+# ncremap/ncclimo implement NPO logic (not getopt logic) prior to invoking NCO
 # This switch is a no-op in main getopt() block below (since it has already been parsed here)
 hrd_pth='No' # [sng] Hard-code machine-dependent paths/modules if HOSTNAME in database
 if [ -n "${1}" ]; then

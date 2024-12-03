@@ -34,16 +34,17 @@ else
 fi # !false
 
 # Directories containing instantaneous variables
-var_drc_nst='tbot tdew pbot wind'
-#var_drc_nst='tbot'
+#var_drc_nst='tbot tdew pbot wind'
+var_drc_nst='tdew'
 
 # Directories containing time-mean/accumulated variables
-var_drc_avg='prec lwdn swdn'
+#var_drc_avg='prec lwdn swdn'
 #var_drc_avg='lwdn'
+var_drc_avg=''
 
 # Start and end years
-yr_srt='1993'
-yr_end='1993'
+yr_srt='1998'
+yr_end='1998'
 
 # Human-readable summary
 date_srt=$(date +"%s")
